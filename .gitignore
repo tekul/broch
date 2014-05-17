@@ -1,0 +1,5 @@
+*.swp
+dist/
+*.aes
+*.db3
+tags

@@ -1,0 +1,112 @@
+Name:               broch
+Version:            0.1
+Synopsis:           OAuth2/OpenID Connect Server
+Description:
+  Implementation of a (server-agnostic) OAuth2 library and
+  a Yesod server implementation.
+Author:             Luke Taylor
+License:            BSD3
+Build-Type:         Simple
+Cabal-Version:      >= 1.10
+
+Library
+  Default-Language:  Haskell2010
+  Exposed-modules:   Broch.Model
+                   , Broch.Token
+                   , Broch.Random
+                   , Broch.OAuth2.Token
+                   , Broch.OAuth2.Authorize
+                   , Broch.Persist
+                   , Broch.OAuth2.Internal
+  Build-Depends:     base >= 4
+                   , time
+                   , either >= 3.4
+                   , mtl >= 2.1
+                   , bytestring >= 0.10
+                   , containers >= 0.4
+                   , jwt        >= 0.1
+                   , cryptohash >= 0.11 && < 0.12
+                   , crypto-pubkey >= 0.2 && < 0.3
+                   , cipher-aes >= 0.2 && < 0.3
+                   , cprng-aes >= 0.5.2 && < 0.6
+                   , crypto-random >= 0.0.7
+                   , http-types >= 0.8
+                   , aeson >= 0.6 && < 0.7
+                   , text  >= 0.11
+                   , base16-bytestring
+                   , base64-bytestring >= 1
+                   , persistent >= 1.2 && < 1.4
+                   , persistent-template >= 1.2
+Executable broch
+  Default-Language:  Haskell2010
+  Main-is:           broch.hs
+  Other-Modules:     Broch.Handler.Token
+                   , Broch.Handler.Authorize
+                   , Broch.Handler.Class
+  Ghc-options:      -Wall -rtsopts -fno-warn-missing-signatures
+  Build-depends:     broch
+                   , base
+                   , bytestring
+                   , containers
+                   , base16-bytestring
+                   , base64-bytestring
+                   , crypto-pubkey
+                   , cipher-aes
+                   , crypto-random >= 0.0.7
+                   , cprng-aes
+                   , either
+                   , jwt
+                   , mtl
+                   , time
+                   , text
+                   , aeson
+                   , http-types
+                   , persistent
+                   , persistent-template
+                   , persistent-sqlite >= 1.2 && < 1.3
+                   , transformers >= 0.3
+                   , string-qq >= 0.0.2
+                   , clientsession >= 0.9
+                   , crypto-pubkey-openssh >= 0.2.2
+                   , http-conduit >= 2.0.0.3
+                   , http-client >= 0.2
+                   , monad-logger >= 0.3
+                   , path-pieces >= 0.1
+                   , yesod >= 1.2
+                   , yesod-core >= 1.2 && < 1.3
+                   , yesod-auth >= 1.2 && < 1.3
+                   , yesod-form >= 1.3 && < 1.4
+                   , shakespeare-i18n >= 1.0
+                   , wai >= 2.0
+                   , wai-extra >= 2.0
+                   , warp >= 2.0.1
+
+
+
+Test-suite tests
+  Default-Language:  Haskell2010
+  Type:              exitcode-stdio-1.0
+  Other-Modules:     Broch.OAuth2.TokenSpec
+  Build-depends:     broch
+                   , jwt
+                   , base
+                   , containers
+                   , either
+                   , time
+                   , bytestring
+                   , base64-bytestring
+                   , cryptohash
+                   , crypto-pubkey
+                   , crypto-random
+                   , cipher-aes
+                   , cprng-aes
+                   , mtl
+                   , text
+                   , aeson
+                   , hspec >= 1.6
+                   , HUnit >= 1.2 && < 2
+                   , QuickCheck >= 2.4
+  Ghc-options:      -Wall -rtsopts -fno-warn-missing-signatures
+  Hs-source-dirs:   tests
+  Main-is:          tests.hs
+
