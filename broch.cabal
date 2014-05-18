@@ -31,7 +31,7 @@ Library
                    , cprng-aes >= 0.5.2 && < 0.6
                    , crypto-random >= 0.0.7
                    , http-types >= 0.8
-                   , aeson >= 0.6 && < 0.7
+                   , aeson >= 0.6 && < 0.8
                    , text  >= 0.11
                    , base16-bytestring
                    , base64-bytestring >= 1

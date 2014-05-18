@@ -21,6 +21,7 @@ import Data.Text (Text)
 import Data.Time (NominalDiffTime)
 
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 import Broch.Model
 import qualified Broch.OAuth2.Internal as I
@@ -44,11 +45,11 @@ data AccessTokenResponse = AccessTokenResponse
 instance ToJSON AccessTokenResponse where
     toJSON (AccessTokenResponse t tt ex mr ms) =
         let expires = round ex :: Int
-        in object $ [ "access_token" .= t
+        in object $ [ "access_token" .= TE.decodeUtf8 t
                     , "token_type"   .= tt
                     , "expires_in"   .= expires
-                    ] ++ maybe [] (\r -> ["refresh_token" .= r]) mr
-                      ++ maybe [] (\s -> ["scope"         .= s]) ms
+                    ] ++ maybe [] (\r -> ["refresh_token" .= TE.decodeUtf8 r]) mr
+                      ++ maybe [] (\s -> ["scope"         .= TE.decodeUtf8 s]) ms
 
 -- See http://tools.ietf.org/html/rfc6749#section-5.2 for error handling
 data TokenError = InvalidRequest Text        |

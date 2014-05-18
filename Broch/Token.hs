@@ -35,18 +35,17 @@ createJwtAccessToken pubKey mUser client grantType scopes now = do
       return (token, refreshToken, tokenTTL)
     where
       toJwt t = withCPRG $ \cprg -> jweRsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
-      cidBS   = TE.encodeUtf8 $ clientId client
       issueRefresh
         | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = fmap Just $ toJwt refreshClaims
         | otherwise = return Nothing
       subject = case mUser of
-                  Just s  -> TE.encodeUtf8 s
-                  Nothing -> cidBS
+                  Just s  -> s
+                  Nothing -> clientId client
       claims = Claims
                  { iss = "Broch"
                  , sub = subject
                  , grt = grantType
-                 , cid = cidBS
+                 , cid = clientId client
                  , aud = ["nobody"]
                  , exp = now + tokenTTL
                  , nbf = Nothing
@@ -70,8 +69,8 @@ decodeJwtRefreshToken privKey jwt = case claims of
                                         decodeClaims (_, t) = decode $ fromStrict t
 
 claimsToAccessGrant claims = AccessGrant
-                          { granterId = fmap TE.decodeUtf8 subj
-                          , granteeId = TE.decodeUtf8 $ cid claims
+                          { granterId = subj
+                          , granteeId = cid claims
                           , accessGrantType = grt claims
                           , grantScope = scp claims
                           , grantExpiry = exp claims
@@ -85,14 +84,14 @@ claimsToAccessGrant claims = AccessGrant
 
 data Claims = Claims
       { iss :: Text
-      , sub :: ByteString
+      , sub :: Text
       , grt :: GrantType
-      , cid :: ByteString
-      , aud :: [ByteString]
+      , cid :: Text
+      , aud :: [Text]
       , exp :: POSIXTime
       , nbf :: Maybe POSIXTime
       , iat :: POSIXTime
-      , jti :: Maybe ByteString
+      , jti :: Maybe Text
       , scp :: [Text]
       }
 
