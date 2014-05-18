@@ -63,7 +63,7 @@ Executable broch
                    , http-types
                    , persistent
                    , persistent-template
-                   , persistent-sqlite >= 1.2 && < 1.3
+                   , persistent-sqlite >= 1.2 && < 1.4
                    , transformers >= 0.3
                    , string-qq >= 0.0.2
                    , clientsession >= 0.9
