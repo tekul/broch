@@ -80,13 +80,22 @@ data ResponseType = Code
                   | CodeTokenIdToken
                     deriving (Eq, Show)
 
+instance ToJSON ResponseType where
+    toJSON t = String $ case t of
+                          Code  -> "code"
+                          Token -> "token"
+                          IdToken -> "id_token"
+                          CodeIdToken -> "code id_token"
+                          TokenIdToken -> "id_token token"
+                          CodeTokenIdToken -> "code id_token token"
+
 responseTypes :: [(Text, ResponseType)]
 responseTypes =
     [ ("code",    Code)
     , ("token",   Token)
     , ("id_token", IdToken)
     , ("code id_token",  CodeIdToken)
-    , ("token id_token", TokenIdToken)
+    , ("id_token token", TokenIdToken)
     , ("code id_token token", CodeTokenIdToken)
     ]
 

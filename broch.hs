@@ -30,6 +30,7 @@ import Broch.Token
 import Broch.Model
 import Broch.Handler.Authorize
 import Broch.Handler.Token
+import Broch.Handler.OpenID
 import qualified Broch.Persist as BP
 
 data BrochApp = BrochApp
@@ -41,7 +42,8 @@ mkYesod "BrochApp" [parseRoutes|
 /                 HomeR GET
 /oauth/token      TokenR POST
 /oauth/authorize  AuthorizeR GET
-/auth AuthR Auth getAuth
+/.well-known/openid-configuration OpenIDConfigurationR GET
+/auth AuthR Auth  getAuth
 |]
 
 instance Yesod BrochApp where

@@ -34,6 +34,8 @@ import Broch.Handler.Class
 
 postTokenR :: OAuth2Server site => HandlerT site IO Value
 postTokenR = do
+    -- TODO: Replace with a generic client auth method based on the
+    -- supported auth types
     client    <- basicAuthClient
     env       <- runRequestBody >>= \(params, _) -> return $ toMap params
     --env       <- liftM (toMap . reqGetParams) getRequest
