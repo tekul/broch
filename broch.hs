@@ -9,11 +9,14 @@ import Yesod.Auth.BrowserId
 import Yesod.Auth.GoogleEmail
 import Yesod.Auth.Dummy
 import Yesod.Form
+import Yesod.Core.Handler (HandlerT)
 import Web.PathPieces (fromPathPiece)
 import Database.Persist.Sqlite (ConnectionPool, withSqlitePool, runSqlPool, runMigration)
 import Crypto.PubKey.OpenSsh
+import qualified Crypto.PubKey.RSA as RSA
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (runStderrLoggingT)
+import Data.Aeson
 import Data.String.QQ
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
@@ -26,9 +29,13 @@ import Network.HTTP.Conduit (Manager, newManager)
 import Network.HTTP.Client (defaultManagerSettings)
 import Text.Shakespeare.I18N (RenderMessage(..))
 import qualified Web.ClientSession as CS
+
+import Jose.Jwk
+
 import Broch.Token
 import Broch.Model
 import Broch.Handler.Authorize
+import Broch.Handler.Class
 import Broch.Handler.Token
 import Broch.Handler.OpenID
 import qualified Broch.Persist as BP
@@ -36,14 +43,16 @@ import qualified Broch.Persist as BP
 data BrochApp = BrochApp
     { httpManager :: Manager
     , brochPool   :: ConnectionPool
+    , privateKey  :: RSA.PrivateKey
     }
 
 mkYesod "BrochApp" [parseRoutes|
 /                 HomeR GET
 /oauth/token      TokenR POST
 /oauth/authorize  AuthorizeR GET
-/.well-known/openid-configuration OpenIDConfigurationR GET
 /auth AuthR Auth  getAuth
+/.well-known/openid-configuration OpenIDConfigurationR GET
+/.well-known/jwks JwksR GET
 |]
 
 instance Yesod BrochApp where
@@ -59,11 +68,13 @@ instance Yesod BrochApp where
     -- Don't handle sessions for the token endpoint
     makeSessionBackend _ = do
         let dontSaveSession _ = return []
+        let noSession         = return (Map.empty, dontSaveSession)
         dbe <- defaultClientSessionBackend 120 CS.defaultKeyFile
         return $ Just $ SessionBackend $ \req ->
             case W.pathInfo req of
-                ["oauth","token"] -> return (Map.empty, dontSaveSession)
-                _                 -> sbLoadSession dbe req
+                ["oauth", "token"] -> noSession
+                [".well-known", _] -> noSession
+                _                  -> sbLoadSession dbe req
 
 isUser = do
     mu <- maybeAuthId
@@ -100,13 +111,27 @@ instance OAuth2Server BrochApp where
 
     getAuthorization code = runDB (BP.getAuthorizationByCode code)
 
-    createAccessToken user client grantType scopes now =
-        liftIO $ createJwtAccessToken pubKey user client grantType scopes now
+    createAccessToken user client grantType scopes now = do
+        kPub <- getPublicKey
+        liftIO $ createJwtAccessToken kPub user client grantType scopes now
 
-    decodeRefreshToken _ jwt = return $ decodeJwtRefreshToken privKey (encodeUtf8 jwt)
+    decodeRefreshToken _ jwt = do
+        kPr <- getPrivateKey
+        return $ decodeJwtRefreshToken kPr (encodeUtf8 jwt)
+
+instance OpenIDConnectServer BrochApp where
+    keySet = do
+        kPub <- getPublicKey
+        return $ JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
+
+getPublicKey :: HandlerT BrochApp IO RSA.PublicKey
+getPublicKey = fmap RSA.private_pub getPrivateKey
+
+getPrivateKey :: HandlerT BrochApp IO RSA.PrivateKey
+getPrivateKey = fmap privateKey getYesod
 
 runDB f = do
-    BrochApp _ pool <- getYesod
+    BrochApp _ pool _ <- getYesod
     runSqlPool f pool
 
 getHomeR = do
@@ -125,6 +150,11 @@ $nothing
 <p>Nothing to see here yet. Maybe you want to try an <a href=@{AuthorizeR}>authorization request?
 |]
 
+
+getJwksR :: OpenIDConnectServer site => HandlerT site IO Value
+getJwksR = fmap toJSON keySet
+
+
 lookupClient = findClient clients
   where
     findClient []   _  = Nothing
@@ -137,12 +167,6 @@ clients =
     , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True []
     , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [] False []
     ]
-
-
-pubKey = rsaKey
-  where
-    Right (OpenSshPublicKeyRsa rsaKey _) = decodePublic "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDX4NDElhUxvDSMoQ136LJCTtsDnWu3ZXH2CU0WrVoPlmXqR1HFl9hXItSeC3dhofRRweJGk33GDhWKSaHIJpFuVIuj6H/G8Sft2LwrWuPbMLBm7EKv02N+mQw9h02CjUyfD87fqurrsexm4RJKyMbrjqUwtagrcHuhvdzBoOfXvjgppCC8wqdiVx3jSq3OKVkVF1SBEa2ohjieAPcKnEn6Npst7uhSLC+W6oS0LG9ZSzX/dimOWteXghZYQXOy+iJt5fHzzdMe0iJrH1ZBBnmPxzJNhJ60ojgJDCiQk57IIidWZjVzuuKogXAMFirE2SDbeOCCF8GRILDsULo/Dudl resource@broch"
-
 
 privKey = rsaKey
   where
@@ -184,6 +208,6 @@ main :: IO ()
 main = withSqlitePool "broch.db3" 5 $ \pool -> do
     runStderrLoggingT $ runSqlPool (runMigration BP.migrateAll) pool
     man <- newManager defaultManagerSettings
-    waiApp <- toWaiApp $ BrochApp man pool
+    waiApp <- toWaiApp $ BrochApp man pool privKey
     run 4000 $ logStdoutDev waiApp
 

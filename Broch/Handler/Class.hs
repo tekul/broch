@@ -6,6 +6,8 @@ import Yesod.Core.Handler (HandlerT)
 import Data.Text
 import Data.Time.Clock.POSIX (POSIXTime)
 import Data.ByteString (ByteString)
+import Jose.Jwk (JwkSet)
+
 import Broch.Model
 
 
@@ -37,3 +39,6 @@ class OAuth2Server site where
     decodeRefreshToken :: Client
                        -> Text          -- ^ Refresh token parameter
                        -> HandlerT site IO (Maybe AccessGrant)
+
+class OAuth2Server site => OpenIDConnectServer site where
+    keySet :: HandlerT site IO JwkSet

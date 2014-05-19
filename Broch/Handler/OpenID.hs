@@ -4,17 +4,16 @@
 module Broch.Handler.OpenID where
 
 
-import Data.Aeson
-import Data.Text (Text)
-import qualified Data.HashMap.Strict as H
-import Jose.Jwa (Alg (..), Enc (..))
+import           Data.Aeson
+import           Data.Aeson.Types(Options(..), defaultOptions)
+import           Data.Text (Text)
+import           GHC.Generics (Generic)
+import           Jose.Jwa (Alg (..), Enc (..))
+import qualified Jose.Jwk as Jwk
+import           Yesod.Core.Handler (HandlerT)
 
-import GHC.Generics (Generic)
-
-import Yesod.Core.Handler (HandlerT)
-
-import Broch.Handler.Class (OAuth2Server)
-import Broch.Model
+import           Broch.Handler.Class
+import           Broch.Model
 
 data OpenIDConfiguration = OpenIDConfiguration
     { issuer :: Text
@@ -51,7 +50,12 @@ data OpenIDConfiguration = OpenIDConfiguration
     , op_tos_uri :: Maybe Text
     } deriving (Show, Generic)
 
-instance ToJSON OpenIDConfiguration
+
+
+instance ToJSON OpenIDConfiguration where
+    toJSON = genericToJSON aesonOptions
+      where
+        aesonOptions = defaultOptions { omitNothingFields = True }
 
 
 defaultOpenIDConfiguration :: OpenIDConfiguration
@@ -60,7 +64,7 @@ defaultOpenIDConfiguration = OpenIDConfiguration
     , authorization_endpoint = "http://localhost:4000/oauth2/authorize"
     , token_endpoint         = "http://localhost:4000/oauth2/token"
     , userinfo_endpoint      = "http://localhost:4000/connect/user_info"
-    , jwks_uri               = "http://localhost:4000/jwks.json"
+    , jwks_uri               = "http://localhost:4000/.well-known/jwks"
     , registration_endpoint  = Nothing
     , scopes_supported       = ["openid", "profile", "email"]
     , response_types_supported = [Code, IdToken, CodeIdToken]
@@ -90,8 +94,6 @@ defaultOpenIDConfiguration = OpenIDConfiguration
     , op_tos_uri    = Nothing
     }
 
-getOpenIDConfigurationR :: OAuth2Server site => HandlerT site IO Value
-getOpenIDConfigurationR = do
-    let Object h = toJSON defaultOpenIDConfiguration
-    return $ Object $ H.filter (Null /=) h
+getOpenIDConfigurationR :: OpenIDConnectServer site => HandlerT site IO Value
+getOpenIDConfigurationR = return $ toJSON defaultOpenIDConfiguration
 
