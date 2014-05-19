@@ -11,7 +11,7 @@ import Yesod.Auth.Dummy
 import Yesod.Form
 import Yesod.Core.Handler (HandlerT)
 import Web.PathPieces (fromPathPiece)
-import Database.Persist.Sqlite (ConnectionPool, withSqlitePool, runSqlPool, runMigration)
+import Database.Persist.Sqlite (ConnectionPool, withSqlitePool, runSqlPool, runSqlPersistMPool, runMigration)
 import Crypto.PubKey.OpenSsh
 import qualified Crypto.PubKey.RSA as RSA
 import Control.Monad.IO.Class (liftIO)
@@ -19,8 +19,8 @@ import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson
 import Data.String.QQ
 import Data.Text (Text)
-import Data.Text.Encoding (encodeUtf8)
 import Data.ByteString (ByteString)
+import Data.Time.Clock.POSIX (POSIXTime)
 import qualified Data.Map as Map
 import qualified Network.Wai as W
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
@@ -35,7 +35,7 @@ import Jose.Jwk
 import Broch.Token
 import Broch.Model
 import Broch.Handler.Authorize
-import Broch.Handler.Class
+import Broch.Class
 import Broch.Handler.Token
 import Broch.Handler.OpenID
 import qualified Broch.Persist as BP
@@ -44,6 +44,8 @@ data BrochApp = BrochApp
     { httpManager :: Manager
     , brochPool   :: ConnectionPool
     , privateKey  :: RSA.PrivateKey
+    , createAuthz :: Text -> Text -> Client -> POSIXTime -> [Text] -> Maybe Text -> IO ()
+    , loadAuthzByCode :: Text -> IO (Maybe Authorization)
     }
 
 mkYesod "BrochApp" [parseRoutes|
@@ -98,41 +100,26 @@ instance YesodAuth BrochApp where
 instance RenderMessage BrochApp FormMessage where
     renderMessage _ _ = defaultFormMessage
 
-instance OAuth2Server BrochApp where
-    getClient cid = return $ lookupClient cid
 
-    createAuthorization uid code client now scope mUri =
-        runDB (BP.createAuthorization uid code client now scope mUri)
+instance OAuth2Server BrochApp where
+    getClient _ cid = return $ lookupClient cid
+
+    createAuthorization app = createAuthz app
 
     -- Dummy implementation
-    authenticateResourceOwner username password
+    authenticateResourceOwner _ username password
         | username == password = return $ Just username
         | otherwise            = return Nothing
 
-    getAuthorization code = runDB (BP.getAuthorizationByCode code)
+    getAuthorization = loadAuthzByCode
 
-    createAccessToken user client grantType scopes now = do
-        kPub <- getPublicKey
-        liftIO $ createJwtAccessToken kPub user client grantType scopes now
+    getPrivateKey _ = privKey
 
-    decodeRefreshToken _ jwt = do
-        kPr <- getPrivateKey
-        return $ decodeJwtRefreshToken kPr (encodeUtf8 jwt)
 
-instance OpenIDConnectServer BrochApp where
-    keySet = do
-        kPub <- getPublicKey
-        return $ JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
+instance OpenIDConnectServer BrochApp
 
-getPublicKey :: HandlerT BrochApp IO RSA.PublicKey
-getPublicKey = fmap RSA.private_pub getPrivateKey
 
-getPrivateKey :: HandlerT BrochApp IO RSA.PrivateKey
-getPrivateKey = fmap privateKey getYesod
-
-runDB f = do
-    BrochApp _ pool _ <- getYesod
-    runSqlPool f pool
+--runDB (BrochApp _ pool _) f = runSqlPool f pool
 
 getHomeR = do
     maid <- maybeAuthId
@@ -149,11 +136,6 @@ $nothing
         <a href=@{AuthR LoginR}>Go to the login page
 <p>Nothing to see here yet. Maybe you want to try an <a href=@{AuthorizeR}>authorization request?
 |]
-
-
-getJwksR :: OpenIDConnectServer site => HandlerT site IO Value
-getJwksR = fmap toJSON keySet
-
 
 lookupClient = findClient clients
   where
@@ -208,6 +190,9 @@ main :: IO ()
 main = withSqlitePool "broch.db3" 5 $ \pool -> do
     runStderrLoggingT $ runSqlPool (runMigration BP.migrateAll) pool
     man <- newManager defaultManagerSettings
-    waiApp <- toWaiApp $ BrochApp man pool privKey
+    let loadAuthz code = runSqlPersistMPool (BP.getAuthorizationByCode code) pool
+    let newAuthz  code uid client now scope mUri = flip runSqlPersistMPool pool $
+                            BP.createAuthorization code uid client now scope mUri
+    waiApp <- toWaiApp $ BrochApp man pool privKey newAuthz loadAuthz
     run 4000 $ logStdoutDev waiApp
 

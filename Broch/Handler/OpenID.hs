@@ -3,16 +3,14 @@
 
 module Broch.Handler.OpenID where
 
-
 import           Data.Aeson
 import           Data.Aeson.Types(Options(..), defaultOptions)
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           Jose.Jwa (Alg (..), Enc (..))
-import qualified Jose.Jwk as Jwk
-import           Yesod.Core.Handler (HandlerT)
+import           Yesod.Core.Handler (HandlerT, getYesod)
 
-import           Broch.Handler.Class
+import           Broch.Class
 import           Broch.Model
 
 data OpenIDConfiguration = OpenIDConfiguration
@@ -97,3 +95,5 @@ defaultOpenIDConfiguration = OpenIDConfiguration
 getOpenIDConfigurationR :: OpenIDConnectServer site => HandlerT site IO Value
 getOpenIDConfigurationR = return $ toJSON defaultOpenIDConfiguration
 
+getJwksR :: OpenIDConnectServer site => HandlerT site IO Value
+getJwksR = getYesod >>= \s -> return $ toJSON $ keySet s

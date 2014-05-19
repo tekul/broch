@@ -11,7 +11,7 @@ module Broch.Handler.Token
 import Prelude hiding (exp)
 
 import Yesod.Core.Handler (HandlerT, sendResponseStatus, permissionDenied, runRequestBody)
-import Yesod.Core (MonadHandler, waiRequest)
+import Yesod.Core (MonadHandler, waiRequest, getYesod)
 
 import Data.Aeson
 import Data.Text (Text)
@@ -30,7 +30,7 @@ import Network.HTTP.Types
 
 import Broch.Model
 import Broch.OAuth2.Token
-import Broch.Handler.Class
+import Broch.Class
 
 postTokenR :: OAuth2Server site => HandlerT site IO Value
 postTokenR = do
@@ -40,8 +40,9 @@ postTokenR = do
     env       <- runRequestBody >>= \(params, _) -> return $ toMap params
     --env       <- liftM (toMap . reqGetParams) getRequest
     now       <- liftIO getPOSIXTime
+    oauth2    <- getYesod
 
-    response  <- processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
+    response  <- liftIO $ processTokenRequest env client now oauth2
     case response of
       Left err -> sendResponseStatus badRequest400 $ toJSON err
       Right tr -> return $ toJSON tr
@@ -49,10 +50,11 @@ postTokenR = do
 
 basicAuthClient :: (OAuth2Server site) => HandlerT site IO Client
 basicAuthClient = do
-    hdrs <- liftM W.requestHeaders waiRequest
-    authzHdr <- maybe (send401 "Authentication required") return $ lookup hAuthorization hdrs
+    hdrs          <- liftM W.requestHeaders waiRequest
+    authzHdr      <- maybe (send401 "Authentication required") return $ lookup hAuthorization hdrs
     (cid, secret) <- maybe (send401 "Invalid authorization header") return $ decodeHeader authzHdr
-    maybeClient <- getClient cid
+    oauth2        <- getYesod
+    maybeClient   <- liftIO $ getClient oauth2 cid
     maybe (permissionDenied "Authentication failed") return $ maybeClient >>= validateSecret secret
   where
     send401 :: MonadHandler m => Text -> m a

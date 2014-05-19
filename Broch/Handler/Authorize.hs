@@ -20,10 +20,10 @@ import Network.HTTP.Types
 import qualified Data.Map as Map
 import qualified Data.Text.Encoding as TE
 
-import Broch.OAuth2.Authorize
-import Broch.Handler.Class
-
+import Broch.Class
 import Broch.Model
+import Broch.OAuth2.Authorize
+
 {-
   GET Request to the authorization endpoint.
 
@@ -33,7 +33,8 @@ getAuthorizeR :: (OAuth2Server site, YesodAuth site, AuthId site ~ Text) => Hand
 getAuthorizeR = do
     user    <- maybeAuthId >>= maybe redirectLogin return
     env     <- liftM (toMap . reqGetParams) getRequest
-    (client, mURI) <- either evilClientError return =<< getClientAndRedirectURI getClient env
+    srvr    <- getYesod
+    (client, mURI) <- either evilClientError return =<< (liftIO $ getClientAndRedirectURI (getClient srvr) env)
     let redirectURI = fromMaybe (defaultRedirectURI client) mURI
     -- From this point, all errors can be safely returned to the client
     maybeState   <- either (errorResponse redirectURI Nothing) return $ getState env
@@ -57,7 +58,7 @@ getAuthorizeR = do
       Code  -> do
                 code <- liftIO generateCode
                 now  <- liftIO getPOSIXTime
-                createAuthorization (TE.decodeUtf8 code) user client now scope mURI
+                liftIO $ createAuthorization srvr (TE.decodeUtf8 code) user client now scope mURI
                 authzCodeResponse redirectURI maybeState code (scope \\ approvedScope)
       Token -> permissionDenied "Implicit grant not supported"
       _     -> permissionDenied "Response type not (yet) supported"

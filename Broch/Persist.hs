@@ -31,7 +31,6 @@ AuthCode
 |]
 
 
-createAuthorization :: (Functor f, PersistStore f) => Text -> Text -> Client -> POSIXTime -> [Text] -> Maybe Text -> f ()
 createAuthorization code userId client now scope mURI =
     void (insert $ AuthCode code userId (clientId client) (fromIntegral $ round now) scope mURI)
 

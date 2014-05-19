@@ -59,7 +59,7 @@ data AuthorizationError = InvalidRequest Text
 getClientAndRedirectURI :: (Monad m) => (ClientId -> m (Maybe Client)) -> Map.Map Text [Text] -> m (Either EvilClientError (Client, Maybe Text))
 getClientAndRedirectURI getClient env = runEitherT $ do
     (cid, mURI) <- getClientParams env
-    client      <-  maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
+    client      <- maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
     validateRedirectURI client mURI
     right (client, mURI)
 

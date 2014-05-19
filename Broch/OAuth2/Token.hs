@@ -24,6 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Broch.Model
+import Broch.Class
 import qualified Broch.OAuth2.Internal as I
 
 data TokenType = Bearer deriving (Show, Eq)
@@ -71,12 +72,12 @@ instance ToJSON TokenError where
                       UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
                       InvalidScope m       -> ("invalid_scope", Just m)
 
-processTokenRequest env client now loadAuthz authenticateUser createAccessToken decodeRefreshToken = runEitherT $ do
+processTokenRequest env client now oauth2 = runEitherT $ do
     grantType <- getGrantType
     (!mUser, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam env "code"
-            authz <- lift (loadAuthz code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
+            authz <- lift (getAuthorization oauth2 code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
             mURI  <- maybeParam env "redirect_uri"
             validateAuthorization authz client now mURI
             return (Just $ authorizedSubject authz, AuthorizationCode, authorizedScope authz)
@@ -89,14 +90,14 @@ processTokenRequest env client now loadAuthz authenticateUser createAccessToken 
             username <- requireParam env "username"
             password <- requireParam env "password"
             s <- getResourceOwnerScope
-            mUser <- lift $ authenticateUser username password
+            mUser <- lift $ authenticateResourceOwner oauth2 username password
             case mUser of
                 Nothing -> left $ InvalidGrant "authentication failed"
                 _       -> return (mUser, ResourceOwner, s)
 
         RefreshToken      -> do
             rt <- requireParam env "refresh_token"
-            AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
+            AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken oauth2 client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
             s <- getRefreshScope gs
             checkExpiry gexp
             if cid /= clientId client
@@ -104,7 +105,7 @@ processTokenRequest env client now loadAuthz authenticateUser createAccessToken 
                 else return (mu, gt', s)
 
 
-    (token, mRefreshToken, tokenTTL) <- lift $ createAccessToken mUser client tokenGrantType grantedScope now
+    (token, mRefreshToken, tokenTTL) <- lift $ createAccessToken oauth2 mUser client tokenGrantType grantedScope now
     return AccessTokenResponse
               { accessToken = token
               , tokenType   = Bearer
