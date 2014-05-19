@@ -23,7 +23,9 @@ import qualified Crypto.PubKey.RSA as RSA
 
 import Broch.Model
 import Broch.Random
-import Data.Jwt
+import Jose.Jwa
+import Jose.Jwt
+import qualified Jose.Jwe as Jwe
 
 tokenTTL = 3600
 refreshTokenTTL = 3600 * 24
@@ -34,7 +36,7 @@ createJwtAccessToken pubKey mUser client grantType scopes now = do
       refreshToken <- issueRefresh
       return (token, refreshToken, tokenTTL)
     where
-      toJwt t = withCPRG $ \cprg -> jweRsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
+      toJwt t = withCPRG $ \cprg -> Jwe.rsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
       issueRefresh
         | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = fmap Just $ toJwt refreshClaims
         | otherwise = return Nothing
@@ -63,7 +65,7 @@ decodeJwtRefreshToken privKey jwt = case claims of
                                         Right (Just c)  -> Just $ claimsToAccessGrant c
                                         _               -> Nothing
                                     where
-                                        claims = fmap decodeClaims $ jweRsaDecode privKey jwt
+                                        claims = fmap decodeClaims $ Jwe.rsaDecode privKey jwt
 
                                         decodeClaims :: (JwtHeader, ByteString) -> Maybe Claims
                                         decodeClaims (_, t) = decode $ fromStrict t
