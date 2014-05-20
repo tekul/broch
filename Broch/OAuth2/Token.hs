@@ -24,7 +24,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Broch.Model
-import Broch.Class
 import qualified Broch.OAuth2.Internal as I
 
 data TokenType = Bearer deriving (Show, Eq)
@@ -40,8 +39,6 @@ data AccessTokenResponse = AccessTokenResponse
   , refreshToken :: Maybe ByteString
   , scope        :: Maybe ByteString
   } deriving (Show, Eq)
-
-
 
 instance ToJSON AccessTokenResponse where
     toJSON (AccessTokenResponse t tt ex mr ms) =
@@ -72,12 +69,12 @@ instance ToJSON TokenError where
                       UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
                       InvalidScope m       -> ("invalid_scope", Just m)
 
-processTokenRequest env client now oauth2 = runEitherT $ do
+processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = runEitherT $ do
     grantType <- getGrantType
     (!mUser, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam env "code"
-            authz <- lift (getAuthorization oauth2 code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
+            authz <- lift (getAuthorization code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
             mURI  <- maybeParam env "redirect_uri"
             validateAuthorization authz client now mURI
             return (Just $ authorizedSubject authz, AuthorizationCode, authorizedScope authz)
@@ -86,18 +83,18 @@ processTokenRequest env client now oauth2 = runEitherT $ do
             s <- getClientScope
             return (Nothing, ClientCredentials, s)
 
-        ResourceOwner     -> do
+        ResourceOwner -> do
             username <- requireParam env "username"
             password <- requireParam env "password"
             s <- getResourceOwnerScope
-            mUser <- lift $ authenticateResourceOwner oauth2 username password
+            mUser <- lift $ authenticateResourceOwner username password
             case mUser of
                 Nothing -> left $ InvalidGrant "authentication failed"
                 _       -> return (mUser, ResourceOwner, s)
 
-        RefreshToken      -> do
+        RefreshToken -> do
             rt <- requireParam env "refresh_token"
-            AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken oauth2 client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
+            AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
             s <- getRefreshScope gs
             checkExpiry gexp
             if cid /= clientId client
@@ -105,7 +102,7 @@ processTokenRequest env client now oauth2 = runEitherT $ do
                 else return (mu, gt', s)
 
 
-    (token, mRefreshToken, tokenTTL) <- lift $ createAccessToken oauth2 mUser client tokenGrantType grantedScope now
+    (token, mRefreshToken, tokenTTL) <- lift $ createAccessToken mUser client tokenGrantType grantedScope now
     return AccessTokenResponse
               { accessToken = token
               , tokenType   = Bearer
@@ -120,19 +117,19 @@ processTokenRequest env client now oauth2 = runEitherT $ do
     getGrantType = do
         gt <- requireParam env "grant_type"
         case lookup gt grantTypes of
-          Nothing -> left UnsupportedGrantType
-          Just g  -> if g `elem` authorizedGrantTypes client
+            Nothing -> left UnsupportedGrantType
+            Just g  -> if g `elem` authorizedGrantTypes client
                        then right g
                        else left $ UnauthorizedClient $ T.append "Client is not authorized to use grant: " gt
     getClientScope = do
-      mScope <- getRequestedScope
-      either (left . InvalidScope) right $ I.checkClientScope client mScope
+        mScope <- getRequestedScope
+        either (left . InvalidScope) right $ I.checkClientScope client mScope
 
     getResourceOwnerScope = getClientScope
 
     getRefreshScope existingScope = do
-      mScope <- getRequestedScope
-      either (left . InvalidScope) right $ I.checkRequestedScope existingScope mScope
+        mScope <- getRequestedScope
+        either (left . InvalidScope) right $ I.checkRequestedScope existingScope mScope
 
     getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap (T.splitOn " ") ms
 
@@ -155,6 +152,6 @@ requireParam env name = case I.requireParam env name of
 
 maybeParam :: (Monad m) => Map Text [Text] -> Text -> EitherT TokenError m (Maybe Text)
 maybeParam env name = case I.maybeParam env name of
-                        Right p -> right p
-                        Left  m -> left $ InvalidRequest m
+                          Right p -> right p
+                          Left  m -> left $ InvalidRequest m
 

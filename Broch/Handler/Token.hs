@@ -42,7 +42,7 @@ postTokenR = do
     now       <- liftIO getPOSIXTime
     oauth2    <- getYesod
 
-    response  <- liftIO $ processTokenRequest env client now oauth2
+    response  <- liftIO $ processTokenRequest env client now (getAuthorization oauth2) (authenticateResourceOwner oauth2) (createAccessToken oauth2) (decodeRefreshToken oauth2)
     case response of
       Left err -> sendResponseStatus badRequest400 $ toJSON err
       Right tr -> return $ toJSON tr

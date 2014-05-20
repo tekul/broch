@@ -7,7 +7,7 @@ module Broch.Handler.Authorize
     )
 where
 
-import Yesod
+import Yesod.Core
 import Yesod.Auth
 
 import Control.Monad.Error
