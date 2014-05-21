@@ -110,7 +110,9 @@ Test-suite tests
                    , crypto-random
                    , cipher-aes
                    , cprng-aes
+                   , http-types
                    , mtl
+                   , network
                    , persistent
                    , persistent-sqlite
                    , text
@@ -119,6 +121,8 @@ Test-suite tests
                    , hspec >= 1.6
                    , HUnit >= 1.2 && < 2
                    , QuickCheck >= 2.4
+                   , wai-test
+                   , yesod-auth
                    , yesod-test
   Ghc-options:      -Wall -rtsopts -fno-warn-missing-signatures
   Hs-source-dirs:   tests

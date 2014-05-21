@@ -20,6 +20,7 @@ import           Yesod.Form
 import           Yesod.Auth.Dummy
 
 import           Broch.Class
+import           Broch.Model
 import           Broch.Random
 import           Broch.Handler.Authorize
 import           Broch.Handler.Token
@@ -123,8 +124,17 @@ $nothing
 <p>Nothing to see here yet. Maybe you want to try an <a href=@{AuthorizeR}>authorization request?
 |]
 
-makeTestApp :: ConnectionPool -> IO TestApp
-makeTestApp p = do
+testClients =
+    [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True []
+    , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True []
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [] False []
+    ]
+
+makeTestApp :: [Client] -> ConnectionPool -> IO TestApp
+makeTestApp cs p = do
+    runStderrLoggingT $ runSqlPool (runMigration BP.migrateAll) p
+    mapM_ (\c -> runSqlPersistMPool (BP.createClient c) p) cs
     (_, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
 
     return $ TestApp p kPr
+
