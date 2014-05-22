@@ -10,6 +10,7 @@ import           Control.Monad.Logger (runStderrLoggingT)
 import qualified Crypto.PubKey.RSA as RSA
 import qualified Data.Map as Map
 import           Data.Text
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Database.Persist.Sql (ConnectionPool, runSqlPool, runMigration, runSqlPersistMPool)
 import qualified Network.Wai as W
 import qualified Web.ClientSession as CS
@@ -22,6 +23,7 @@ import           Yesod.Auth.Dummy
 import           Broch.Class
 import           Broch.Model
 import           Broch.Random
+import           Broch.Handler.Approval
 import           Broch.Handler.Authorize
 import           Broch.Handler.Token
 import           Broch.Handler.OpenID
@@ -38,6 +40,7 @@ mkYesod "TestApp" [parseRoutes|
 /                 HomeR GET
 /oauth/token      TokenR POST
 /oauth/authorize  AuthorizeR GET
+/approval         ApprovalR GET POST
 /auth AuthR Auth  getAuth
 /.well-known/openid-configuration OpenIDConfigurationR GET
 /.well-known/jwks JwksR GET
@@ -48,7 +51,7 @@ instance Yesod TestApp where
 
     isAuthorized HomeR _       = return Authorized
     isAuthorized TokenR _      = return Authorized
-    isAuthorized AuthorizeR _  = isUser
+--    isAuthorized AuthorizeR _  = isUser
     isAuthorized (AuthR LoginR) _       = return Authorized
     isAuthorized _     _       = return Authorized --return $ Unauthorized "Keep out"
     -- Don't handle sessions for the token endpoint
@@ -61,13 +64,13 @@ instance Yesod TestApp where
                 ["oauth", "token"] -> noSession
                 [".well-known", _] -> noSession
                 _                  -> sbLoadSession dbe req
-
+{--
 isUser = do
     mu <- maybeAuthId
     return $ case mu of
         Nothing -> AuthenticationRequired
         Just _  -> Authorized
-
+--}
 
 instance YesodAuth TestApp where
     type AuthId TestApp = Text
@@ -100,7 +103,15 @@ instance OAuth2Server TestApp where
 
     getAuthorization app code = runDB app $ BP.getAuthorizationByCode code
 
+    getApproval app uid clnt now = runDB app $ BP.getApproval uid (clientId clnt) now
+
+    saveApproval app (Approval uid cid scopes expiry) = runDB app $ BP.createApproval uid cid scopes (posixSecondsToUTCTime expiry)
+
     getPrivateKey = privateKey
+
+instance YesodOAuth2Server TestApp where
+    approvalRoute a = ApprovalR
+
 
 runDB app = flip runSqlPersistMPool (pool app)
 
@@ -127,7 +138,7 @@ $nothing
 testClients =
     [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True []
     , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True []
-    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [] False []
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 ["scope1", "scope2"] False []
     ]
 
 makeTestApp :: [Client] -> ConnectionPool -> IO TestApp

@@ -35,6 +35,16 @@ class OAuth2Server s where
                               -> Text
                               -> IO (Maybe OAuth2User)
 
+    getApproval :: s
+                -> Text
+                -> Client
+                -> POSIXTime
+                -> IO (Maybe Approval)
+
+    saveApproval :: s
+                -> Approval
+                -> IO ()
+
     getAuthorization :: s
                      -> Text
                      -> IO (Maybe Authorization)

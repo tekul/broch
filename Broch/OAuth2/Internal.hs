@@ -9,9 +9,10 @@ import qualified Data.Map as Map
 import qualified Data.Text as T
 
 import Broch.Model
+
 -- Checks the (maybe) requested scope for a client.
 -- If nothing, returns the default scope for the client,
--- otherwise checks make sure the client has only requested
+-- otherwise checks the client has only requested
 -- scopes it is allowed. If it has, the requested scopes are
 -- returned, otherwise a (left) error message.
 checkClientScope :: Client -> Maybe [Text] -> Either Text [Text]

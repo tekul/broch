@@ -5,9 +5,11 @@ module IntegrationSpec where
 import Control.Arrow (second)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.ByteString.Base64 as B64
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Data.Time.Clock.POSIX
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
@@ -18,6 +20,7 @@ import Test.Hspec (hspec, Spec)
 import Network.HTTP.Types
 import Network.URI
 import Network.Wai.Test (SResponse(..))
+import Yesod.Core (Yesod)
 import Yesod.Auth (Route (..))
 import Yesod.Test
 
@@ -33,41 +36,66 @@ integrationSpec =
             statusIs 200
 
             let redirectUri = "http://localhost:8080/app"
-
-            request $ do
-               setUrl AuthorizeR
-               addGetParam "client_id"     "app"
-               addGetParam "state"         "1234"
-               addGetParam "response_type" "code"
-               addGetParam "redirect_uri"  redirectUri
+            -- Auth code request for default client scopes
+            authCodeRequest "app" redirectUri []
             statusIs 302
 
             get $ AuthR LoginR
             statusIs 200
 
-            -- Dummy login
-            postBody ("/auth/page/dummy" :: Text) "ident=crap"
+            login "crap"
             statusIs 302
             -- Server redirects to the original authz request
-            -- printLocationHeader
-
+            -- Resend original request
             getLocationHeader >>= get
-            -- Redirect to client
+            -- Redirect to approvals
             statusIs 302
+            printLocationHeader
+            approvalRequest "app" ["scope1", "scope2"]
+            statusIs 302
+            printLocationHeader
+            -- Resend the original request *again*
+            getLocationHeader >>= get
             getLocationParam "state" >>= \s -> assertEqual "Invalid state parameter" s "1234"
             code <- getLocationParam "code"
 
             -- Post as client. TODO: Find a way to reset cookies as this
             -- isn't a browser request
-            request $ do
-                setMethod "POST"
-                setUrl TokenR
-                basicAuth "app" "appsecret"
-                addPostParam "client_id" "app"
-                addPostParam "grant_type" "authorization_code"
-                addPostParam "redirect_uri" redirectUri
-                addPostParam "code" code
+            tokenRequest "app" "appsecret" code redirectUri
+            statusIs 200
 
+
+login :: Yesod site => BL.ByteString -> YesodExample site ()
+login uid = postBody ("/auth/page/dummy" :: Text) $ BL.concat ["ident=", uid]
+
+
+authCodeRequest cid redirectUri scopes = request $ do
+    setUrl AuthorizeR
+    addGetParam "client_id"     cid
+    addGetParam "state"         "1234"
+    addGetParam "response_type" "code"
+    addGetParam "redirect_uri"  redirectUri
+    if null scopes
+      then return ()
+      else addGetParam "scope" (T.intercalate " " scopes)
+
+tokenRequest cid secret code redirectUri = request $ do
+    setMethod "POST"
+    setUrl TokenR
+    basicAuth cid secret
+    addPostParam "client_id" cid
+    addPostParam "grant_type" "authorization_code"
+    addPostParam "redirect_uri" redirectUri
+    addPostParam "code" code
+
+approvalRequest cid scopes = request $ do
+    setMethod "POST"
+    setUrl ApprovalR
+    addPostParam "client_id" cid
+    now <- liftIO $ getPOSIXTime
+    let expiry = round $ now + posixDayLength
+    addPostParam "expiry" $ T.pack $ show expiry
+    mapM_ (addPostParam "scope") scopes
 
 basicAuth :: Text -> Text -> RequestBuilder site ()
 basicAuth name password = addRequestHeader ("Authorization", B.concat["Basic ", B64.encode (TE.encodeUtf8 (T.concat [name, ":", password]))])
@@ -90,9 +118,9 @@ printLocationHeader = do
 
 getLocationURI :: YesodExample site URI
 getLocationURI = do
-    l <- getLocationHeader
-    case parseURI (T.unpack l) of
-        Nothing -> fail "Invalid redirect URI"
+    l <- getLocationHeader >>= return . T.unpack
+    case parseURIReference l of
+        Nothing -> fail $ "Invalid redirect URI: " ++ l
         Just r  -> return r
 
 getLocationHeader :: YesodExample site Text
@@ -108,7 +136,8 @@ runDB qry = do
 
 main :: IO ()
 main = do
-    app <- createSqlitePool ":memory:" 5 >>= makeTestApp testClients
+    app <- createSqlitePool ":memory:" 2 >>= makeTestApp testClients
     hspec $ do
         yesodSpec app $ do
             integrationSpec
+

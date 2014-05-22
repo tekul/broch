@@ -14,12 +14,13 @@ type TokenTTL = NominalDiffTime
 
 type OAuth2User = Text
 type ClientId = Text
+type Scope    = Text
 
 data Authorization = Authorization
     { authorizedSubject :: OAuth2User
     , authorizedClient :: ClientId
     , authorizedAt :: POSIXTime
-    , authorizedScope :: [Text]
+    , authorizedScope :: [Scope]
     , authorizedRedirectUri :: Maybe Text
     } deriving (Eq, Show)
 
@@ -27,9 +28,17 @@ data AccessGrant = AccessGrant
     { granterId    :: Maybe Text
     , granteeId    :: ClientId
     , accessGrantType    :: GrantType
-    , grantScope   :: [Text]
+    , grantScope   :: [Scope]
     , grantExpiry  :: POSIXTime
     } deriving (Eq, Show)
+
+data Approval = Approval
+    { approverId :: Text -- The user
+    , approvedClient :: ClientId
+    , approvedScope :: [Scope]
+    , approvalExpiry :: POSIXTime
+    } deriving (Show)
+
 
 data GrantType = AuthorizationCode
                | RefreshToken
@@ -67,7 +76,7 @@ data Client = Client
     , redirectURIs :: [Text]
     , accessTokenValidity :: Int
     , refreshTokenValidity :: Int
-    , allowedScope :: [Text]
+    , allowedScope :: [Scope]
     , autoapprove :: Bool
     , roles :: [Text]
     }

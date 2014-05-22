@@ -8,31 +8,42 @@ module Broch.Persist
     , getAuthorizationByCode
     , createClient
     , getClientById
+    , createApproval
+    , getApproval
     )
 where
 
-import Control.Monad (void)
+import Control.Monad (void, liftM)
 import Data.Maybe (fromJust)
-import Database.Persist (insert, getBy, delete, Entity(..), PersistStore)
+import Database.Persist (insert, getBy, delete, deleteBy, Entity(..), PersistStore, PersistUnique)
 import Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
 
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
+import Data.Time.Clock
 
 import qualified Broch.Model as M
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
-AuthCode
+AuthCode sql=authz_code
   code   Text
   uid    Text
-  client Text
-  issueAt Int
+  clientId Text
+  issuedAt UTCTime
   scope  [Text]
   uri    Text Maybe
   UniqueCode code
   deriving Show
 
-Client
+Approval sql=authz_approval
+  uid      Text
+  clientId Text
+  scope    [Text]
+  expiresAt UTCTime
+  UniqueApproval uid clientId
+  deriving Show
+
+Client sql=oauth2_client
   clientId       Text
   clientSecret   Text Maybe
   authorizedGrantTypes [Text]
@@ -48,15 +59,31 @@ Client
 
 
 createAuthorization code userId client now scope mURI =
-    void $ insert $ AuthCode code userId (M.clientId client) (fromIntegral $ round now) scope mURI
+    void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) scope mURI
 
 getAuthorizationByCode code = do
     record <- getBy $ UniqueCode code
     case record of
         Nothing -> return Nothing
-        Just (Entity key (AuthCode _ uid client issueAt scope uri)) -> do
+        Just (Entity key (AuthCode _ uid client issuedAt scope uri)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (fromIntegral issueAt) scope uri
+            return $ Just $ M.Authorization uid client (utcTimeToPOSIXSeconds issuedAt) scope uri
+
+createApproval uid clientId scope expires =
+    void $ insert $ Approval uid clientId scope expires
+
+-- getApproval :: PersistUnique m => Text -> Text -> POSIXTime -> m (Maybe M.Approval)
+getApproval uid cid now = do
+    record <- getBy $ UniqueApproval uid cid
+    case record of
+        Nothing -> return Nothing
+        Just (Entity key (Approval _ _ scope expiry)) -> do
+            let posixExpiry = utcTimeToPOSIXSeconds expiry
+            if now > posixExpiry
+                then delete key >> return Nothing
+                else return $ Just $ M.Approval uid cid scope posixExpiry
+
+deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 
 createClient (M.Client cid ms gs uris atv rtv scps appr roles) =
     void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv scps appr roles
