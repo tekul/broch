@@ -4,6 +4,7 @@ module Broch.Model where
 
 import Control.Applicative (pure)
 import Data.Aeson
+import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Maybe (fromJust)
 import Data.Time
@@ -15,6 +16,48 @@ type TokenTTL = NominalDiffTime
 type OAuth2User = Text
 type ClientId = Text
 type Scope    = Text
+
+
+-- data OpenIDScope = OpenID | Profile | Email | Phone | Address
+
+type LoadClient m = ClientId
+                 -> m (Maybe Client)
+
+type CreateAuthorization m = Text
+                          -> OAuth2User
+                          -> Client
+                          -> POSIXTime
+                          -> [Scope]
+                          -> Maybe Text
+                          -> m ()
+
+type LoadAuthorization m = Text
+                        -> m (Maybe Authorization)
+
+type AuthenticateResourceOwner m = Text
+                                -> Text
+                                -> m (Maybe OAuth2User)
+
+type LoadApproval m = Text
+                   -> Client
+                   -> POSIXTime
+                   -> m (Maybe Approval)
+
+type CreateApproval m = Approval
+                     -> m ()
+
+
+type CreateAccessToken m = Maybe OAuth2User   -- ^ The end user (resource owner)
+                        -> Client             -- ^ The OAuth client the token will be issued to
+                        -> GrantType          -- ^ The grant type under which the token was requested
+                        -> [Scope]            -- ^ The scope granted to the client
+                        -> POSIXTime          -- ^ Current time
+                        -> m (ByteString, Maybe ByteString, TokenTTL)
+
+type DecodeRefreshToken m = Client
+                       -> Text
+                       -> m (Maybe AccessGrant)
+
 
 data Authorization = Authorization
     { authorizedSubject :: OAuth2User

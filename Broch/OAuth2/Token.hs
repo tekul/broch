@@ -19,6 +19,7 @@ import Data.Map (Map)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Time (NominalDiffTime)
+import Data.Time.Clock.POSIX (POSIXTime)
 
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -69,6 +70,14 @@ instance ToJSON TokenError where
                       UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
                       InvalidScope m       -> ("invalid_scope", Just m)
 
+processTokenRequest :: Monad m => Map Text [Text]
+                    -> Client
+                    -> POSIXTime
+                    -> LoadAuthorization m
+                    -> AuthenticateResourceOwner m
+                    -> CreateAccessToken m
+                    -> DecodeRefreshToken m
+                    -> m (Either TokenError AccessTokenResponse)
 processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = runEitherT $ do
     grantType <- getGrantType
     (!mUser, !tokenGrantType, !grantedScope) <- case grantType of
@@ -100,6 +109,8 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             if cid /= clientId client
                 then left $ InvalidGrant "Refresh token was issued to a different client"
                 else return (mu, gt', s)
+
+        Implicit -> left $ InvalidGrant "Implicit grant is not supported by the token endpoint"
 
 
     (token, mRefreshToken, tokenTTL) <- lift $ createAccessToken mUser client tokenGrantType grantedScope now
