@@ -14,26 +14,23 @@ import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Database.Persist.Sql (ConnectionPool, runSqlPool, runMigration, runSqlPersistMPool)
 import qualified Network.Wai as W
 import qualified Web.ClientSession as CS
-import           Text.Shakespeare.I18N (RenderMessage(..))
 import           Yesod.Core
 import           Yesod.Auth
 import           Yesod.Form
 import           Yesod.Auth.Dummy
 
-import           Broch.Class
 import           Broch.Model
-import           Broch.Random
-import           Broch.Handler.Approval
-import           Broch.Handler.Authorize
-import           Broch.Handler.Token
-import           Broch.Handler.OpenID
 import qualified Broch.Persist as BP
+import           Broch.Random
+import           Broch.Yesod.Class
+import           Broch.Yesod.Handler.Approval
+import           Broch.Yesod.Handler.Authorize
+import           Broch.Yesod.Handler.Token
+import           Broch.Yesod.Handler.OpenID
 
 data TestApp = TestApp
     { pool        :: ConnectionPool
     , privateKey  :: RSA.PrivateKey
---    , createAuthz :: Text -> Text -> Client -> POSIXTime -> [Text] -> Maybe Text -> IO ()
---    , loadAuthzByCode :: Text -> IO (Maybe Authorization)
     }
 
 mkYesod "TestApp" [parseRoutes|
@@ -45,6 +42,8 @@ mkYesod "TestApp" [parseRoutes|
 /.well-known/openid-configuration OpenIDConfigurationR GET
 /.well-known/jwks JwksR GET
 |]
+
+-- /connect/userinfo UserInfoR GET
 
 instance Yesod TestApp where
     authRoute _ = Just $ AuthR LoginR
@@ -91,29 +90,29 @@ instance RenderMessage TestApp FormMessage where
 
 
 instance OAuth2Server TestApp where
-    getClient app cid = runDB app $ BP.getClientById cid
+    getClient cid = runDB $ BP.getClientById cid
 
-    createAuthorization app code uid clnt now scp uri = runDB app $
+    createAuthorization code uid clnt now scp uri = runDB $
                             BP.createAuthorization code uid clnt now scp uri
 
     -- Dummy implementation
-    authenticateResourceOwner _ username password
+    authenticateResourceOwner username password
         | username == password = return $ Just username
         | otherwise            = return Nothing
 
-    getAuthorization app code = runDB app $ BP.getAuthorizationByCode code
+    getAuthorization code = runDB $ BP.getAuthorizationByCode code
 
-    getApproval app uid clnt now = runDB app $ BP.getApproval uid (clientId clnt) now
+    getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
 
-    saveApproval app (Approval uid cid scopes expiry) = runDB app $ BP.createApproval uid cid scopes (posixSecondsToUTCTime expiry)
+    saveApproval (Approval uid cid scopes expiry) = runDB $ BP.createApproval uid cid scopes (posixSecondsToUTCTime expiry)
 
-    getPrivateKey = privateKey
+    getPrivateKey = fmap privateKey getYesod
 
-instance YesodOAuth2Server TestApp where
-    approvalRoute a = ApprovalR
+    approvalRoute _ = ApprovalR
 
-
-runDB app = flip runSqlPersistMPool (pool app)
+runDB f = do
+    TestApp p _ <- getYesod
+    runSqlPool f p
 
 
 instance OpenIDConnectServer TestApp
@@ -138,7 +137,7 @@ $nothing
 testClients =
     [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True []
     , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True []
-    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 ["scope1", "scope2"] False []
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False []
     ]
 
 makeTestApp :: [Client] -> ConnectionPool -> IO TestApp

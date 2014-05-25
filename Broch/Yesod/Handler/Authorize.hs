@@ -2,9 +2,8 @@
              FlexibleContexts, MultiParamTypeClasses,
              GeneralizedNewtypeDeriving #-}
 
-module Broch.Handler.Authorize
+module Broch.Yesod.Handler.Authorize
     ( getAuthorizeR
-    , YesodOAuth2Server (..)
     )
 where
 
@@ -22,26 +21,21 @@ import Network.HTTP.Types
 import qualified Data.Map as Map
 import qualified Data.Text.Encoding as TE
 
-import Broch.Class
+import Broch.Yesod.Class
 import Broch.Model
 import Broch.OAuth2.Authorize
-
-
-class OAuth2Server site => YesodOAuth2Server site where
-    approvalRoute :: site -> Route site
 
 
 {-
   GET Request to the authorization endpoint.
 
   Used by authorization code and implicit grants.
- -}
-getAuthorizeR :: (YesodOAuth2Server site, YesodAuth site, AuthId site ~ Text) => HandlerT site IO Html
+-}
+getAuthorizeR :: (OAuth2Server site, YesodAuth site, AuthId site ~ Text) => HandlerT site IO Html
 getAuthorizeR = do
     user    <- maybeAuthId >>= maybe redirectLogin return
     env     <- liftM (toMap . reqGetParams) getRequest
-    srvr    <- getYesod
-    (client, mURI) <- either evilClientError return =<< (liftIO $ getClientAndRedirectURI (getClient srvr) env)
+    (client, mURI) <- either evilClientError return =<< getClientAndRedirectURI getClient env
     let redirectURI = fromMaybe (defaultRedirectURI client) mURI
     -- From this point, all errors can be safely returned to the client
     maybeState   <- either (errorResponse redirectURI Nothing) return $ getState env
@@ -59,9 +53,9 @@ getAuthorizeR = do
 
     case responseType of
       Code  -> do
-                code <- liftIO generateCode
-                liftIO $ createAuthorization srvr (TE.decodeUtf8 code) user client now scope mURI
-                authzCodeResponse redirectURI maybeState code scope
+          code <- liftIO generateCode
+          createAuthorization (TE.decodeUtf8 code) user client now scope mURI
+          authzCodeResponse redirectURI maybeState code scope
       Token -> permissionDenied "Implicit grant not supported"
       _     -> permissionDenied "Response type not (yet) supported"
   where
@@ -72,12 +66,11 @@ getAuthorizeR = do
     -- | Reports an error to the client itself, via a redirect
     errorResponse :: Text -> Maybe Text -> AuthorizationError -> HandlerT site IO a
     errorResponse rURI mState e = redirectWith status302 $ authzErrorURL rURI mState e
-    authzCodeResponse rURI mState code scope = redirectWith status302 $ authzCodeResponseURL rURI mState code scope
+    authzCodeResponse rURI mState code scope = redirectWith status302 $ authzCodeResponseURL rURI mState code $ (map scopeName) scope
 
     resourceOwnerApproval uid client requestedScope now = do
         -- Try to load a previous approval
-        site <- getYesod
-        maybeApproval <- liftIO $ getApproval site uid client now
+        maybeApproval <- getApproval uid client now
         case maybeApproval of
             -- TODO: Check scope overlap and allow asking for extra scope
             -- not previously granted
@@ -85,11 +78,11 @@ getAuthorizeR = do
             -- Nothing exists: Redirect to approval handler with scopes and client id
             Nothing -> redirectApproval (clientId client) requestedScope
 
-redirectApproval :: YesodOAuth2Server site => ClientId -> [Scope] -> HandlerT site IO a
+redirectApproval :: OAuth2Server site => ClientId -> [Scope] -> HandlerT site IO a
 redirectApproval cid scope = do
-    y <- getYesod
     setUltDestCurrent
-    let query = [("client_id", cid), ("scope", T.intercalate " " scope)]
+    y <- getYesod
+    let query = [("client_id", cid), ("scope", T.intercalate " " (map scopeName scope))] :: [(Text,Text)]
     redirect (approvalRoute y, query)
 
 

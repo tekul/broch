@@ -59,7 +59,7 @@ Client sql=oauth2_client
 
 
 createAuthorization code userId client now scope mURI =
-    void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) scope mURI
+    void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) mURI
 
 getAuthorizationByCode code = do
     record <- getBy $ UniqueCode code
@@ -67,10 +67,10 @@ getAuthorizationByCode code = do
         Nothing -> return Nothing
         Just (Entity key (AuthCode _ uid client issuedAt scope uri)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (utcTimeToPOSIXSeconds issuedAt) scope uri
+            return $ Just $ M.Authorization uid client (utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) uri
 
 createApproval uid clientId scope expires =
-    void $ insert $ Approval uid clientId scope expires
+    void $ insert $ Approval uid clientId (map M.scopeName scope) expires
 
 -- getApproval :: PersistUnique m => Text -> Text -> POSIXTime -> m (Maybe M.Approval)
 getApproval uid cid now = do
@@ -81,12 +81,12 @@ getApproval uid cid now = do
             let posixExpiry = utcTimeToPOSIXSeconds expiry
             if now > posixExpiry
                 then delete key >> return Nothing
-                else return $ Just $ M.Approval uid cid scope posixExpiry
+                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) posixExpiry
 
 deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 
 createClient (M.Client cid ms gs uris atv rtv scps appr roles) =
-    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv scps appr roles
+    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr roles
 
 getClientById cid = do
     record <- getBy $ UniqueClientId cid
@@ -94,4 +94,4 @@ getClientById cid = do
         Nothing -> return Nothing
         Just (Entity key (Client _ ms gs uris atv rtv scps appr roles)) -> do
             let grants = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
-            return $ Just $ M.Client cid ms grants uris atv rtv scps appr roles
+            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr roles

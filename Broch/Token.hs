@@ -30,7 +30,7 @@ import qualified Jose.Jwe as Jwe
 tokenTTL = 3600
 refreshTokenTTL = 3600 * 24
 
-createJwtAccessToken :: RSA.PublicKey -> Maybe OAuth2User -> Client -> GrantType -> [Text] -> POSIXTime -> IO (ByteString, Maybe ByteString, TokenTTL)
+createJwtAccessToken :: RSA.PublicKey -> Maybe OAuth2User -> Client -> GrantType -> [Scope] -> POSIXTime -> IO (ByteString, Maybe ByteString, TokenTTL)
 createJwtAccessToken pubKey mUser client grantType scopes now = do
       token <- toJwt claims
       refreshToken <- issueRefresh
@@ -53,7 +53,7 @@ createJwtAccessToken pubKey mUser client grantType scopes now = do
                  , nbf = Nothing
                  , iat = now
                  , jti = Nothing
-                 , scp = scopes
+                 , scp = (map scopeName scopes)
                  }
       refreshClaims = claims
                         { exp = now + refreshTokenTTL
@@ -74,7 +74,7 @@ claimsToAccessGrant claims = AccessGrant
                           { granterId = subj
                           , granteeId = cid claims
                           , accessGrantType = grt claims
-                          , grantScope = scp claims
+                          , grantScope = map scopeFromName $ scp claims
                           , grantExpiry = exp claims
                           }
   where

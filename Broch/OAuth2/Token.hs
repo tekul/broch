@@ -142,7 +142,7 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
         mScope <- getRequestedScope
         either (left . InvalidScope) right $ I.checkRequestedScope existingScope mScope
 
-    getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap (T.splitOn " ") ms
+    getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap ((map scopeFromName) . (T.splitOn " ")) ms
 
 validateAuthorization :: (Monad m) => Authorization -> Client -> NominalDiffTime -> Maybe Text -> EitherT TokenError m ()
 validateAuthorization (Authorization _ issuedTo issuedAt _ authzURI) client now mURI

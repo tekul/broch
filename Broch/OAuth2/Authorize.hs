@@ -95,13 +95,13 @@ getState :: Map.Map Text [Text] -> Either AuthorizationError (Maybe Text)
 getState env = either (Left . InvalidRequest) return $ maybeParam env "state"
 
 -- response type and scope
-getGrantData :: Map.Map Text [Text] -> Text -> Client -> Either AuthorizationError (ResponseType, [Text])
+getGrantData :: Map.Map Text [Text] -> Text -> Client -> Either AuthorizationError (ResponseType, [Scope])
 getGrantData env user client =  do
     param <- either (Left . InvalidRequest) return $ requireParam env "response_type"
     rt    <- maybe (Left UnsupportedResponseType) return $ lookup (normalize param) responseTypes
     checkResponseType client rt
     maybeScope <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
-    scope <-  checkScope user client maybeScope
+    scope <-  checkScope user client $ fmap (map scopeFromName) maybeScope
     return (rt, scope)
 
 checkResponseType :: Client -> ResponseType -> Either AuthorizationError ()
@@ -111,7 +111,7 @@ checkResponseType client rt = case rt of
 
 -- scopes <- validate scopes are allowed for client in question.
 -- Calculate intersection with user scopes
-checkScope :: Text -> Client -> Maybe [Text] -> Either AuthorizationError [Text]
+checkScope :: Text -> Client -> Maybe [Scope] -> Either AuthorizationError [Scope]
 checkScope user client maybeScope = case checkClientScope client maybeScope of
   Right s -> Right s
   Left  m -> Left $ InvalidRequest m

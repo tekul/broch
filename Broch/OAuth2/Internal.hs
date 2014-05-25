@@ -15,10 +15,10 @@ import Broch.Model
 -- otherwise checks the client has only requested
 -- scopes it is allowed. If it has, the requested scopes are
 -- returned, otherwise a (left) error message.
-checkClientScope :: Client -> Maybe [Text] -> Either Text [Text]
+checkClientScope :: Client -> Maybe [Scope] -> Either Text [Scope]
 checkClientScope client = checkRequestedScope (allowedScope client)
 
-checkRequestedScope :: [Text] -> Maybe [Text] -> Either Text [Text]
+checkRequestedScope :: [Scope] -> Maybe [Scope] -> Either Text [Scope]
 checkRequestedScope defaultScope maybeScope = case maybeScope of
   Nothing -> Right defaultScope
   Just askedFor ->

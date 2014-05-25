@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies, OverloadedStrings, FlexibleContexts,
     MultiParamTypeClasses, DeriveGeneric #-}
 
-module Broch.Handler.OpenID where
+module Broch.Yesod.Handler.OpenID where
 
 import           Data.Aeson
 import           Data.Aeson.Types(Options(..), defaultOptions)
@@ -10,7 +10,7 @@ import           GHC.Generics (Generic)
 import           Jose.Jwa (Alg (..), Enc (..))
 import           Yesod.Core.Handler (HandlerT, getYesod)
 
-import           Broch.Class
+import           Broch.Yesod.Class
 import           Broch.Model
 
 data OpenIDConfiguration = OpenIDConfiguration
@@ -47,6 +47,12 @@ data OpenIDConfiguration = OpenIDConfiguration
     , op_policy_uri :: Maybe Text
     , op_tos_uri :: Maybe Text
     } deriving (Show, Generic)
+
+
+getUserInfoR = undefined
+
+
+
 
 
 
@@ -96,4 +102,4 @@ getOpenIDConfigurationR :: OpenIDConnectServer site => HandlerT site IO Value
 getOpenIDConfigurationR = return $ toJSON defaultOpenIDConfiguration
 
 getJwksR :: OpenIDConnectServer site => HandlerT site IO Value
-getJwksR = getYesod >>= \s -> return $ toJSON $ keySet s
+getJwksR = fmap toJSON keySet

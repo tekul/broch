@@ -140,13 +140,13 @@ appClient = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] ["
 adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] [] 99 99 adminClientScope False []
 roClient = Client "ro" Nothing [ResourceOwner] [] 99 99 appClientScope False []
 
-appClientScope = ["scope1", "scope2", "scope3"]
-adminClientScope = appClientScope ++ ["admin"]
+appClientScope = map CustomScope ["scope1", "scope2", "scope3"]
+adminClientScope = appClientScope ++ [CustomScope "admin"]
 
 createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
   where
     u = maybe "" id mUser
-    token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ s)
+    token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ (map scopeName s))
 
 decodeRefreshToken _ "refreshtoken" = return $ Just catsGrant
 decodeRefreshToken _ "notappstoken" = return $ Just $ catsGrant {granteeId = "otherapp"}

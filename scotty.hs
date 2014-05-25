@@ -137,7 +137,7 @@ main = do
             expiryTxt <- param "expiry"
             scope     <- param "scope"
             let Right (expiry, _) = decimal expiryTxt
-            liftIO $ saveApproval $ Approval user clntId scope (fromIntegral (expiry :: Int64))
+            liftIO $ saveApproval $ Approval user clntId (map scopeFromName scope) (fromIntegral (expiry :: Int64))
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
             redirect l
@@ -154,7 +154,7 @@ resourceOwnerApproval key getApproval uid client requestedScope now = do
         Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
         -- Nothing exists: Redirect to approval handler with scopes and client id
         Nothing -> do
-            let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " requestedScope)]
+            let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " (map scopeName requestedScope))]
             cacheLocation key
             redirect $ L.fromStrict $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
@@ -164,7 +164,7 @@ resourceOwnerApproval key getApproval uid client requestedScope now = do
 -- errorResponse :: Text -> Maybe Text -> AuthorizationError -> HandlerT site IO a
 errorResponse rURI mState e = redirect $ L.fromStrict $ authzErrorURL rURI mState e
 
-authzCodeResponse rURI mState code scope = redirect $ L.fromStrict $ authzCodeResponseURL rURI mState code scope
+authzCodeResponse rURI mState code scope = redirect $ L.fromStrict $ authzCodeResponseURL rURI mState code (map scopeName scope)
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . putStrLn . show

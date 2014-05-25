@@ -2,7 +2,7 @@
              FlexibleContexts, MultiParamTypeClasses,
              GeneralizedNewtypeDeriving, QuasiQuotes #-}
 
-module Broch.Handler.Approval
+module Broch.Yesod.Handler.Approval
     ( getApprovalR
     , postApprovalR
     )
@@ -19,12 +19,12 @@ import Yesod.Core
 import Yesod.Form
 import Yesod.Form.Fields
 
-import Broch.Handler.Authorize
-import Broch.Class
+import Broch.Yesod.Handler.Authorize
+import Broch.Yesod.Class
 import Broch.Model
 
 
-getApprovalR :: (YesodAuth site, YesodOAuth2Server site) => HandlerT site IO Html
+getApprovalR :: (YesodAuth site, OAuth2Server site) => HandlerT site IO Html
 getApprovalR = do
     site <- getYesod
     Just uid <- maybeAuthId
@@ -56,14 +56,13 @@ getApprovalR = do
   where
     aDay = round posixDayLength :: Int64
 
-postApprovalR :: (YesodAuth site, YesodOAuth2Server site, AuthId site ~ Text) => HandlerT site IO Html
+postApprovalR :: (YesodAuth site, OAuth2Server site, AuthId site ~ Text) => HandlerT site IO Html
 postApprovalR = do
-    site <- getYesod
     Just uid <- maybeAuthId
     Just clntId <- lookupPostParam "client_id"
     Just expiryTxt <- lookupPostParam "expiry"
     scope <- lookupPostParams "scope"
     let Right (expiry, _) = decimal expiryTxt
-    liftIO $ saveApproval site $ Approval uid clntId scope (fromIntegral (expiry :: Int64))
+    saveApproval $ Approval uid clntId (map scopeFromName scope) (fromIntegral (expiry :: Int64))
     redirectUltDest ("/" :: Text)
 

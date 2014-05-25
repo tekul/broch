@@ -15,10 +15,38 @@ type TokenTTL = NominalDiffTime
 
 type OAuth2User = Text
 type ClientId = Text
-type Scope    = Text
 
+data Scope = OpenID
+           | Profile
+           | Email
+           | Phone
+           | Address
+           | CustomScope Text
+             deriving (Eq, Show)
 
--- data OpenIDScope = OpenID | Profile | Email | Phone | Address
+scopeName s = case s of
+    OpenID  -> "openid"
+    Profile -> "profile"
+    Email   -> "email"
+    Phone   -> "phone"
+    Address -> "address"
+    CustomScope n -> n
+
+scopeDescription s = case s of
+    OpenID  -> "openid"
+    Profile -> "access to your profile"
+    Email   -> "your email address"
+    Phone   -> "your phone number(s)"
+    Address -> "your address"
+    CustomScope n -> n
+
+scopeFromName n = case n of
+    "openid"  -> OpenID
+    "profile" -> Profile
+    "email"   -> Email
+    "phone"   -> Phone
+    "address" -> Address
+    n         -> CustomScope n
 
 type LoadClient m = ClientId
                  -> m (Maybe Client)
