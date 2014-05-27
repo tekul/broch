@@ -1,0 +1,34 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+
+module Broch.OAuth2.TestData where
+
+import Data.Time.Clock.POSIX
+
+import Broch.Model
+
+-- $ date -r 1400000000
+-- Tue 13 May 2014 17:53:20 BST
+now = fromIntegral (1400000000 :: Int) :: POSIXTime
+
+-- Authorization from user "cat" to app
+catAuthorization = Authorization "cat" (clientId appClient) (now - 20) [] (Just "http://app")
+
+loadAuthorization "catcode" = return $ Just catAuthorization
+loadAuthorization "expired" = return $ Just $ catAuthorization {authorizedAt = now - 301}
+loadAuthorization _         = return Nothing
+
+authenticateResourceOwner username password
+    | username == password = return $ Just username
+    | otherwise            = return Nothing
+
+appClient   = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] ["http://app2", "http://app"] 99 99 appClientScope False []
+adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] [] 99 99 adminClientScope False []
+roClient    = Client "ro" Nothing [ResourceOwner] [] 99 99 appClientScope False []
+
+appClientScope   = map CustomScope ["scope1", "scope2", "scope3"]
+adminClientScope = appClientScope ++ [CustomScope "admin"]
+
+getClient "app"   = return $ Just appClient
+getClient "admin" = return $ Just adminClient
+getClient _       = return Nothing

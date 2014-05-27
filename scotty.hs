@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import           Blaze.ByteString.Builder (toLazyByteString)
-import           Control.Monad (liftM, join, forM_)
+import           Control.Monad (join, forM_)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Logger (runStderrLoggingT)
 import qualified Crypto.PubKey.RSA as RSA
@@ -12,7 +12,6 @@ import qualified Data.ByteString.Lazy as BL
 import           Data.Int (Int64)
 import           Data.List ((\\))
 import qualified Data.Map as Map
-import           Data.Maybe (fromMaybe)
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as L
 import qualified Data.Text as T
@@ -52,11 +51,11 @@ main = do
     (_, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
 
     let runDB = flip runSqlPersistMPool pool
-    let getClient = runDB . BP.getClientById
-    let createAuthorization code uid clnt now scp uri = runDB $
+    let getClient = liftIO . runDB . BP.getClientById
+    let createAuthorization code uid clnt now scp uri = liftIO $ runDB $
                             BP.createAuthorization code uid clnt now scp uri
 
-    let getAuthorization = runDB . BP.getAuthorizationByCode
+    let getAuthorization = liftIO . runDB . BP.getAuthorizationByCode
     let authenticateResourceOwner username password
             | username == password = return $ Just username
             | otherwise            = return Nothing
@@ -73,26 +72,10 @@ main = do
 
             user <- getAuthId csKey
             env  <- fmap toMap params
-            curi <- liftIO $ getClientAndRedirectURI getClient env
-            case curi of
-                -- Report a "bad client" error to the user without a redirect
-                Left err             -> status badRequest400 >> text (L.pack $ show err)
-                Right (client, mURI) -> do
-                    let redirectURI = fromMaybe (defaultRedirectURI client) mURI
-                    -- From this point, all errors can be safely returned to the client
-                    maybeState   <- either (errorResponse redirectURI Nothing) return $ getState env
-                    (responseType, requestedScope) <- either (errorResponse redirectURI maybeState) return $ getGrantData env user client
-                    now   <- liftIO getPOSIXTime
-                    -- The scope approved by the user
-                    scope <- resourceOwnerApproval csKey getApproval user client requestedScope now
+            now  <- liftIO getPOSIXTime
 
-                    case responseType of
-                        Code  -> do
-                                  code <- liftIO generateCode
-                                  liftIO $ createAuthorization (TE.decodeUtf8 code) user client now scope mURI
-                                  authzCodeResponse redirectURI maybeState code scope
-                        Token -> status forbidden403 >> text "Implicit grant not supported"
-                        _     -> status forbidden403 >> text "Response type not (yet) supported"
+            either evilClientError  (redirect . L.fromStrict) =<<
+                processAuthorizationRequest getClient (liftIO generateCode) createAuthorization (resourceOwnerApproval csKey getApproval) user env now
 
         post "/oauth/token" $ do
             client <- basicAuthClient getClient
@@ -127,7 +110,7 @@ main = do
         get "/approval" $ do
             user   <- getAuthId csKey
             now    <- liftIO getPOSIXTime
-            Just client <- param "client_id" >>= liftIO . getClient
+            Just client <- param "client_id" >>= getClient
             scope  <- param "scope" >>= return . (L.splitOn " ")
             html $ renderHtml $ approvalPage client scope (round now)
 
@@ -144,6 +127,8 @@ main = do
 
         get "/logout" $ logout
 
+  where
+    evilClientError err = status badRequest400 >> text (L.pack $ show err)
 
 resourceOwnerApproval key getApproval uid client requestedScope now = do
     -- Try to load a previous approval
@@ -159,12 +144,6 @@ resourceOwnerApproval key getApproval uid client requestedScope now = do
             redirect $ L.fromStrict $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
 
-
--- | Reports an error to the client itself, via a redirect
--- errorResponse :: Text -> Maybe Text -> AuthorizationError -> HandlerT site IO a
-errorResponse rURI mState e = redirect $ L.fromStrict $ authzErrorURL rURI mState e
-
-authzCodeResponse rURI mState code scope = redirect $ L.fromStrict $ authzCodeResponseURL rURI mState code (map scopeName scope)
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . putStrLn . show
@@ -253,15 +232,16 @@ getCookie name = do
 toMap :: [(Text, Text)] -> Map.Map T.Text [T.Text]
 toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [(L.toStrict y)])
 
-basicAuthClient :: (ClientId -> IO (Maybe Client)) -> ActionM (Either (Status, Text) Client)
+basicAuthClient :: LoadClient ActionM -> ActionM (Either (Status, Text) Client)
 basicAuthClient getClient = do
     r <- request
     case basicAuthCredentials r of
         Left  msg           -> return $ Left (unauthorized401, msg)
         Right (cid, secret) -> do
-            client <- liftIO $ getClient cid
+            client <- getClient cid
             return $ maybe (Left (forbidden403, "Authentication failed")) Right $ client >>= validateSecret secret
 
+-- TODO: Use Byteable comparison
 validateSecret :: T.Text -> Client -> Maybe Client
 validateSecret secret client = clientSecret client >>= \s ->
                                   if secret == s

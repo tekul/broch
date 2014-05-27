@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module IntegrationSpec where
 
@@ -28,7 +29,9 @@ import Broch.TestApp
 
 
 integrationSpec :: YesodSpec TestApp
-integrationSpec =
+integrationSpec = ydescribe "Authorization endpoint integration tests" $ authCodeSuccessSpec >> badClientSpec
+
+authCodeSuccessSpec =
     ydescribe "A successful authorization_code flow" $ do
 
         yit "logs in the user, provides a code and issues an access token to the client" $ do
@@ -43,7 +46,7 @@ integrationSpec =
             get $ AuthR LoginR
             statusIs 200
 
-            login "crap"
+            login "cat"
             statusIs 302
             -- Server redirects to the original authz request
             -- Resend original request
@@ -51,6 +54,11 @@ integrationSpec =
             -- Redirect to approvals
             statusIs 302
             printLocationHeader
+            request $ do
+              setUrl ApprovalR
+              addGetParam "client_id" "app"
+              addGetParam "scope" "scope1 scope2"
+            -- Post approvals form
             approvalRequest "app" ["scope1", "scope2"]
             statusIs 302
             printLocationHeader
@@ -64,6 +72,20 @@ integrationSpec =
             tokenRequest "app" "appsecret" code redirectUri
             statusIs 200
 
+badClientSpec =
+    ydescribe "A possibly malicious client request" $ do
+
+        yit "returns a non-redirect error if redirect_uri is wrong" $ do
+            authCodeRequest "app" "http://notapp" []
+            statusIs 302
+            -- Get the login page
+            getLocationHeader >>= get
+            statusIs 200
+            login "cat"
+            statusIs 302
+            -- Resend original request
+            getLocationHeader >>= get
+            statusIs 400
 
 login :: Yesod site => BL.ByteString -> YesodExample site ()
 login uid = postBody ("/auth/page/dummy" :: Text) $ BL.concat ["ident=", uid]
@@ -87,6 +109,7 @@ tokenRequest cid secret code redirectUri = request $ do
     addPostParam "grant_type" "authorization_code"
     addPostParam "redirect_uri" redirectUri
     addPostParam "code" code
+
 
 approvalRequest cid scopes = request $ do
     setMethod "POST"

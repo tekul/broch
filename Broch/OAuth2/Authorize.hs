@@ -1,17 +1,9 @@
-{-# LANGUAGE TypeFamilies, OverloadedStrings, GADTs,
-             FlexibleContexts, MultiParamTypeClasses,
-             GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Broch.OAuth2.Authorize
     ( EvilClientError (..)
-    , AuthorizationError (..)
-    , getClientAndRedirectURI
-    , getState
-    , getGrantData
-    , defaultRedirectURI
+    , processAuthorizationRequest
     , generateCode
-    , authzCodeResponseURL
-    , authzErrorURL
     )
 where
 
@@ -19,7 +11,8 @@ import Control.Monad (liftM, unless)
 import Control.Monad.Error (lift)
 import Control.Monad.Trans.Either
 import Data.ByteString (ByteString)
-import Data.List (sort, intersect, (\\))
+import Data.List (sort)
+import Data.Time.Clock.POSIX
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 
@@ -46,8 +39,55 @@ data AuthorizationError = InvalidRequest Text
                         | InvalidScope Text
                         | ServerError
                         | Unavailable
-                        deriving (Show, Eq)
 
+type GenerateCode m = m ByteString
+type ResourceOwnerApproval m = OAuth2User -> Client -> [Scope] -> POSIXTime -> m [Scope]
+
+processAuthorizationRequest :: Monad m => LoadClient m
+                            -> GenerateCode m
+                            -> CreateAuthorization m
+                            -> ResourceOwnerApproval m
+                            -> OAuth2User
+                            -> Map.Map Text [Text]
+                            -> POSIXTime
+                            -> m (Either EvilClientError Text)
+processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval user env now = do
+    curi <- getClientAndRedirectURI getClient env
+    case curi of
+        Left e -> return $ Left e
+        Right (client, uri) -> do
+            let redirectURI = fromMaybe (defaultRedirectURI client) uri
+            -- Get the state parameter
+            -- Needs to be separate since later errors require that it is returned to
+            -- the client with the error message.
+            case maybeParam env "state" of
+                Left badState -> return . Right $ errorURL False redirectURI Nothing (InvalidRequest badState)
+                Right state   -> do
+                    let err = return . Right . (errorURL False redirectURI state)
+                    case getAuthorizationRequest client of
+                        Left e -> err e
+                        Right (responseType, requestedScope) -> do
+                            scope <- resourceOwnerApproval user client requestedScope now
+
+                            case responseType of
+                                Code  -> do
+                                    code <- genCode
+                                    createAuthorization (TE.decodeUtf8 code) user client now scope uri
+                                    return . Right $ authzCodeResponseURL redirectURI state code (map scopeName scope)
+                                Token -> do
+                                    -- TODO: Create token
+                                    error "Implicit grant not supported"
+                                _     -> error "Response type not supported"
+  where
+    getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope])
+    getAuthorizationRequest client = do
+        (responseType, requestedScope) <- getGrantData env user client
+        case responseType of
+            Code  -> return (responseType, requestedScope)
+            Token -> Left UnsupportedResponseType -- "Implicit grant is not supported"
+            _     -> Left UnsupportedResponseType
+
+    defaultRedirectURI client = head $ redirectURIs client
 
 -- Authorization endpoint helper functions
 
@@ -56,21 +96,14 @@ data AuthorizationError = InvalidRequest Text
 -- to the client, but to the resource owner.
 
 
-getClientAndRedirectURI :: (Monad m) => (ClientId -> m (Maybe Client)) -> Map.Map Text [Text] -> m (Either EvilClientError (Client, Maybe Text))
+getClientAndRedirectURI :: (Monad m) => LoadClient m -> Map.Map Text [Text] -> m (Either EvilClientError (Client, Maybe Text))
 getClientAndRedirectURI getClient env = runEitherT $ do
-    (cid, mURI) <- getClientParams env
-    client      <- maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
+    cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
+    mURI   <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
+    client <- maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
     validateRedirectURI client mURI
     right (client, mURI)
 
-
-
--- The client id and redirect URI
-getClientParams :: (Monad m) => Map.Map Text [Text] -> EitherT EvilClientError m (ClientId, Maybe Text)
-getClientParams env = do
-    cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
-    mURI   <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
-    return (cid, mURI)
 
 -- | If a redirect_uri parameter is supplied it must be valid.
 --   If none is supplied, the default for the client will be used.
@@ -80,47 +113,40 @@ validateRedirectURI client maybeUri = case maybeUri of
     Nothing -> return ()
   where
     validate uri
-      | T.any (== '#') uri           = left FragmentInUri
-      | validRedirectUri client uri  = right ()
-      | otherwise                    = left InvalidRedirectUri
+      | T.any (== '#') uri   = left FragmentInUri
+      | validRedirectUri uri = right ()
+      | otherwise            = left InvalidRedirectUri
+
+    -- | Check the redirectURI is registered for the client
+    validRedirectUri uri = uri `elem` redirectURIs client
 
 -- Other data extraction and validation functions for which errors should
 -- be reported to the client
 
 
--- Get the state parameter
--- Needs to be separate since later errors require that it is returned to
--- the client with the error message.
-getState :: Map.Map Text [Text] -> Either AuthorizationError (Maybe Text)
-getState env = either (Left . InvalidRequest) return $ maybeParam env "state"
 
 -- response type and scope
 getGrantData :: Map.Map Text [Text] -> Text -> Client -> Either AuthorizationError (ResponseType, [Scope])
-getGrantData env user client =  do
+getGrantData env _ client =  do
     param <- either (Left . InvalidRequest) return $ requireParam env "response_type"
     rt    <- maybe (Left UnsupportedResponseType) return $ lookup (normalize param) responseTypes
-    checkResponseType client rt
+    checkResponseType rt
     maybeScope <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
-    scope <-  checkScope user client $ fmap (map scopeFromName) maybeScope
+    scope <-  checkScope $ fmap (map scopeFromName) maybeScope
     return (rt, scope)
+  where
+    normalize = T.intercalate " " . sort . splitOnSpace
+    splitOnSpace = T.splitOn " "
 
-checkResponseType :: Client -> ResponseType -> Either AuthorizationError ()
-checkResponseType client rt = case rt of
-    Code -> unless (AuthorizationCode `elem` authorizedGrantTypes client) $ Left UnauthorizedClient
-    _    -> Left UnsupportedResponseType
+    checkResponseType rt = case rt of
+        Code -> unless (AuthorizationCode `elem` authorizedGrantTypes client) $ Left UnauthorizedClient
+        _    -> Left UnsupportedResponseType
 
--- scopes <- validate scopes are allowed for client in question.
--- Calculate intersection with user scopes
-checkScope :: Text -> Client -> Maybe [Scope] -> Either AuthorizationError [Scope]
-checkScope user client maybeScope = case checkClientScope client maybeScope of
-  Right s -> Right s
-  Left  m -> Left $ InvalidRequest m
-
-checkApproval u c r = return ()
-
--- | Check the redirectURI is registered for the client
-validRedirectUri :: Client -> Text -> Bool
-validRedirectUri client uri = uri `elem` redirectURIs client
+    -- scopes <- validate scopes are allowed for client in question.
+    -- Calculate intersection with user scopes
+    checkScope maybeScope = case checkClientScope client maybeScope of
+        Right s -> Right s
+        Left  m -> Left $ InvalidRequest m
 
 
 -- TODO: Refactor redirect methods and add a fragment version
@@ -137,10 +163,13 @@ authzCodeResponseURL redirectURI maybeState code scope = T.append redirectURI qs
        ]
 
 
-authzErrorURL :: Text -> Maybe Text -> AuthorizationError -> Text
-authzErrorURL redirectURI maybeState authzError = T.append redirectURI qs
+errorURL :: Bool -> Text -> Maybe Text -> AuthorizationError -> Text
+errorURL useFragment redirectURI maybeState authzError = T.concat [redirectURI, separator, qs]
   where
-    qs  = TE.decodeUtf8 $ renderSimpleQuery True params
+    separator = if useFragment
+                    then "#"
+                    else "?"
+    qs  = TE.decodeUtf8 $ renderSimpleQuery False params
     params = catMaybes
        [ Just ("error", e)
        , fmap (\d -> ("error_description", d)) desc
@@ -159,13 +188,4 @@ authzErrorURL redirectURI maybeState authzError = T.append redirectURI qs
 generateCode :: IO ByteString
 generateCode = liftM Hex.encode $ randomBytes 8
 
-
-defaultRedirectURI client = head $ redirectURIs client
-
-
--- Utility functions
-
-
-normalize = T.intercalate " " . sort . splitOnSpace
-splitOnSpace = T.splitOn " "
 

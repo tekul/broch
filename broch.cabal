@@ -61,6 +61,9 @@ Test-suite tests
   Default-Language:   Haskell2010
   Type:               exitcode-stdio-1.0
   Other-Modules:      Broch.OAuth2.TokenSpec
+                    , Broch.OAuth2.AuthorizationSpec
+                    , Broch.OAuth2.TestData
+                    , IntegrationSpec
   Build-depends:      broch
                     , jose
                     , base

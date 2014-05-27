@@ -7,29 +7,24 @@ import Control.Monad.Identity
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text (Text)
-import Data.Time.Clock.POSIX
 
 import Test.Hspec
 import Test.HUnit hiding (Test)
---import Test.QuickCheck
 
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Broch.Model
 import Broch.OAuth2.Token
+import Broch.OAuth2.TestData
+
 
 spec :: Spec
 spec = grantTypeParameterErrorsSpec >> authorizationCodeTokenRequestSpec
         >> clientCredentialsTokenRequestSpec >> resourceOwnerGrantSpec
         >> refreshTokenGrantSpec
 
--- $ date -r 1400000000
--- Tue 13 May 2014 17:53:20 BST
-now = fromIntegral (1400000000 :: Int) :: POSIXTime
 
--- Authorization from user "cat" to app
-catAuthorization = Authorization "cat" (clientId appClient) (now - 20) [] (Just "http://app")
 
 success t = Right $ AccessTokenResponse t Bearer 987 (Just "refreshtoken") Nothing
 
@@ -125,23 +120,8 @@ refreshTokenGrantSpec =
     env = createEnv RefreshToken
 
 
-loadAuthorization "catcode" = return $ Just catAuthorization
-loadAuthorization "expired" = return $ Just $ catAuthorization {authorizedAt = now - 301}
-loadAuthorization _         = return Nothing
-
-authenticateResourceOwner username password
-    | username == password = return $ Just username
-    | otherwise            = return Nothing
-
 createEnv :: GrantType -> Map Text [Text]
 createEnv gt = Map.fromList [("grant_type", [grantTypeName gt])]
-
-appClient = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] ["http://app2", "http://app"] 99 99 appClientScope False []
-adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] [] 99 99 adminClientScope False []
-roClient = Client "ro" Nothing [ResourceOwner] [] 99 99 appClientScope False []
-
-appClientScope = map CustomScope ["scope1", "scope2", "scope3"]
-adminClientScope = appClientScope ++ [CustomScope "admin"]
 
 createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
   where
