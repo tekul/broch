@@ -157,7 +157,7 @@ data Client = Client
 
 data ResponseType = Code
                   | Token
-                  | IdToken
+                  | IdTokenResponse
                   | CodeIdToken
                   | TokenIdToken
                   | CodeTokenIdToken
@@ -167,7 +167,7 @@ instance ToJSON ResponseType where
     toJSON t = String $ case t of
                           Code  -> "code"
                           Token -> "token"
-                          IdToken -> "id_token"
+                          IdTokenResponse -> "id_token"
                           CodeIdToken -> "code id_token"
                           TokenIdToken -> "id_token token"
                           CodeTokenIdToken -> "code id_token token"
@@ -180,7 +180,7 @@ responseTypes :: [(Text, ResponseType)]
 responseTypes =
     [ ("code",    Code)
     , ("token",   Token)
-    , ("id_token", IdToken)
+    , ("id_token", IdTokenResponse)
     , ("code id_token",  CodeIdToken)
     , ("id_token token", TokenIdToken)
     , ("code id_token token", CodeTokenIdToken)
