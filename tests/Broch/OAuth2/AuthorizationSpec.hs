@@ -33,6 +33,8 @@ evilClientErrorSpec =
         doAuthz (Map.delete "client_id" env) @?= (Left $ InvalidClient "Missing client_id")
       it "returns an error if redirect_uri doesn't match client's" $
         doAuthz (Map.insert "redirect_uri" ["https://badclient"] env) @?= Left InvalidRedirectUri
+      it "returns an error if redirect_uri is duplicated" $
+        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] env) @?= Left InvalidRedirectUri
       it "returns an error if redirect_uri contains a fragment" $
         doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] env) @?= Left FragmentInUri
   where

@@ -25,7 +25,6 @@ spec = grantTypeParameterErrorsSpec >> authorizationCodeTokenRequestSpec
         >> refreshTokenGrantSpec
 
 
-
 success t = Right $ AccessTokenResponse t Bearer 987 (Just "refreshtoken") Nothing
 
 doToken env client = runIdentity $ processTokenRequest env client now loadAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
@@ -41,6 +40,9 @@ grantTypeParameterErrorsSpec =
 
       it "returns invalid_request if grant_type has multiple values" $
         doToken (Map.singleton "grant_type" ["authorization_code", "authorization_code"]) appClient @?= (Left $ InvalidRequest "Duplicate grant_type")
+
+      it "returns invalid_grant for implicit grant" $
+        doToken (Map.singleton "grant_type" ["implicit"]) jsClient @?= (Left $ InvalidGrant "Implicit grant is not supported by the token endpoint")
 
       it "returns unsupported_grant_type for unknown grant type" $
         doToken (Map.singleton "grant_type" ["weird_unknown"]) appClient @?= Left UnsupportedGrantType

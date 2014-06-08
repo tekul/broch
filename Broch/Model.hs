@@ -132,6 +132,8 @@ grantTypes =
     , ("refresh_token",      RefreshToken)
     , ("password",           ResourceOwner)
     , ("client_credentials", ClientCredentials)
+-- implicit is invalid, but someone might use it by mistake
+    , ("implicit",           Implicit)
     ]
 
 grantTypeNames :: [(GrantType, Text)]
