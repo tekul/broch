@@ -5,6 +5,7 @@ module Broch.Model where
 import Control.Applicative (pure)
 import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Maybe (fromJust)
 import Data.Time
@@ -90,7 +91,7 @@ type DecodeRefreshToken m = Client
 data Authorization = Authorization
     { authorizedSubject :: OAuth2User
     , authorizedClient :: ClientId
-    , authorizedAt :: POSIXTime
+    , authorizedAt :: TokenTime
     , authorizedScope :: [Scope]
     , authorizedRedirectUri :: Maybe Text
     } deriving (Eq, Show)
@@ -100,22 +101,22 @@ data AccessGrant = AccessGrant
     , granteeId    :: ClientId
     , accessGrantType    :: GrantType
     , grantScope   :: [Scope]
-    , grantExpiry  :: POSIXTime
+    , grantExpiry  :: TokenTime
     } deriving (Eq, Show)
 
 data Approval = Approval
     { approverId :: Text -- The user
     , approvedClient :: ClientId
     , approvedScope :: [Scope]
-    , approvalExpiry :: POSIXTime
+    , approvalExpiry :: TokenTime
     } deriving (Show)
 
 
 data GrantType = AuthorizationCode
                | RefreshToken
-               | Implicit
                | ResourceOwner
                | ClientCredentials
+               | Implicit
                  deriving (Show, Read, Eq)
 
 instance ToJSON GrantType where
@@ -186,3 +187,13 @@ responseTypes =
     ]
 
 
+newtype TokenTime = TokenTime POSIXTime deriving (Show, Eq, Ord)
+
+instance FromJSON TokenTime where
+    parseJSON = withScientific "TokenTime" $ \n ->
+        let i = round n :: Int64
+        in  pure $ TokenTime (fromIntegral i)
+
+instance ToJSON TokenTime where
+    toJSON (TokenTime t) = let i = round t :: Int64
+                           in  Number $ fromIntegral $ i

@@ -13,9 +13,9 @@ module Broch.Persist
     )
 where
 
-import Control.Monad (void, liftM)
+import Control.Monad (void)
 import Data.Maybe (fromJust)
-import Database.Persist (insert, getBy, delete, deleteBy, Entity(..), PersistStore, PersistUnique)
+import Database.Persist (insert, getBy, delete, deleteBy, Entity(..))
 import Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
 
 import Data.Text (Text)
@@ -67,10 +67,10 @@ getAuthorizationByCode code = do
         Nothing -> return Nothing
         Just (Entity key (AuthCode _ uid client issuedAt scope uri)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) uri
+            return $ Just $ M.Authorization uid client (M.TokenTime $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) uri
 
-createApproval uid clientId scope expires =
-    void $ insert $ Approval uid clientId (map M.scopeName scope) expires
+createApproval (M.Approval uid clientId scope (M.TokenTime expires)) =
+    void $ insert $ Approval uid clientId (map M.scopeName scope) (posixSecondsToUTCTime expires)
 
 -- getApproval :: PersistUnique m => Text -> Text -> POSIXTime -> m (Maybe M.Approval)
 getApproval uid cid now = do
@@ -81,7 +81,7 @@ getApproval uid cid now = do
             let posixExpiry = utcTimeToPOSIXSeconds expiry
             if now > posixExpiry
                 then delete key >> return Nothing
-                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) posixExpiry
+                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (M.TokenTime posixExpiry)
 
 deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 

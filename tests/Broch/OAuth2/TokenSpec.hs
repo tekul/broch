@@ -132,7 +132,7 @@ createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
 
 decodeRefreshToken _ "refreshtoken" = return $ Just catsGrant
 decodeRefreshToken _ "notappstoken" = return $ Just $ catsGrant {granteeId = "otherapp"}
-decodeRefreshToken _ "expiredtoken" = return $ Just $ catsGrant {grantExpiry = now - 10}
+decodeRefreshToken _ "expiredtoken" = return $ Just $ catsGrant {grantExpiry = TokenTime $ now - 10}
 decodeRefreshToken _ _              = return Nothing
 
-catsGrant = AccessGrant (Just "cat") "app" AuthorizationCode appClientScope (now + 999)
+catsGrant = AccessGrant (Just "cat") "app" AuthorizationCode appClientScope (TokenTime $ now + 999)

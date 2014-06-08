@@ -62,7 +62,7 @@ main = do
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
     let decodeRefreshToken _ jwt = return $ decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
     let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
-    let saveApproval (Approval uid cid scopes expiry) = runDB $ BP.createApproval uid cid scopes (posixSecondsToUTCTime expiry)
+    let saveApproval a = runDB $ BP.createApproval a
 
     scotty 3000 $ do
         get "/" $ text "Hello"
@@ -120,7 +120,7 @@ main = do
             expiryTxt <- param "expiry"
             scope     <- param "scope"
             let Right (expiry, _) = decimal expiryTxt
-            liftIO $ saveApproval $ Approval user clntId (map scopeFromName scope) (fromIntegral (expiry :: Int64))
+            liftIO $ saveApproval $ Approval user clntId (map scopeFromName scope) ( TokenTime $ fromIntegral (expiry :: Int64))
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
             redirect l
@@ -142,7 +142,6 @@ resourceOwnerApproval key getApproval uid client requestedScope now = do
             let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " (map scopeName requestedScope))]
             cacheLocation key
             redirect $ L.fromStrict $ TE.decodeUtf8 $ B.concat ["/approval", query]
-
 
 
 debug :: (MonadIO m, Show a) => a -> m ()

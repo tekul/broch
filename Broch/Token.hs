@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 
 module Broch.Token
   ( createJwtAccessToken
@@ -11,13 +11,13 @@ import Prelude hiding (exp)
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad (liftM)
 import Data.Aeson
-import Data.Aeson.Types (Pair)
+import Data.Aeson.Types
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict, fromStrict)
+import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
-import Data.Word (Word64)
-import qualified Data.Text.Encoding as TE
+import GHC.Generics
 
 import qualified Crypto.PubKey.RSA as RSA
 
@@ -27,7 +27,10 @@ import Jose.Jwa
 import Jose.Jwt
 import qualified Jose.Jwe as Jwe
 
+tokenTTL :: POSIXTime
 tokenTTL = 3600
+
+refreshTokenTTL :: POSIXTime
 refreshTokenTTL = 3600 * 24
 
 createJwtAccessToken :: RSA.PublicKey -> Maybe OAuth2User -> Client -> GrantType -> [Scope] -> POSIXTime -> IO (ByteString, Maybe ByteString, TokenTTL)
@@ -49,14 +52,14 @@ createJwtAccessToken pubKey mUser client grantType scopes now = do
                  , grt = grantType
                  , cid = clientId client
                  , aud = ["nobody"]
-                 , exp = now + tokenTTL
+                 , exp = TokenTime $ now + tokenTTL
                  , nbf = Nothing
-                 , iat = now
+                 , iat = TokenTime now
                  , jti = Nothing
                  , scp = (map scopeName scopes)
                  }
       refreshClaims = claims
-                        { exp = now + refreshTokenTTL
+                        { exp = TokenTime $ now + refreshTokenTTL
                         , aud = ["refresh"]
                         }
 
@@ -83,6 +86,8 @@ claimsToAccessGrant claims = AccessGrant
               else Just $ sub claims
 
 
+omitNothingOptions :: Options
+omitNothingOptions = defaultOptions { omitNothingFields = True }
 
 data Claims = Claims
       { iss :: Text
@@ -90,46 +95,25 @@ data Claims = Claims
       , grt :: GrantType
       , cid :: Text
       , aud :: [Text]
-      , exp :: POSIXTime
-      , nbf :: Maybe POSIXTime
-      , iat :: POSIXTime
+      , exp :: TokenTime
+      , nbf :: Maybe TokenTime
+      , iat :: TokenTime
       , jti :: Maybe Text
       , scp :: [Text]
-      }
+      } deriving (Generic)
 
 instance ToJSON Claims where
-    toJSON c = object $ stripNulls
-                [ "iss" .= iss c
-                , "sub" .= sub c
-                , "grt" .= grt c
-                , "cid" .= cid c
-                , "aud" .= aud c
-                , "exp" .= posixTimeToInt (exp c)
-                , "nbf" .= fmap posixTimeToInt (nbf c)
-                , "iat" .= posixTimeToInt (iat c)
-                , "jti" .= jti c
-                , "scp" .= scp c
-                ]
+    toJSON = genericToJSON omitNothingOptions
 
 instance FromJSON Claims where
-    parseJSON (Object v) = Claims <$>
-        v .: "iss"  <*>
-        v .: "sub"  <*>
-        v .: "grt"  <*>
-        v .: "cid"  <*>
-        v .: "aud"  <*>
-        liftM intToPosixTime (v .: "exp")  <*>
-        liftM (fmap intToPosixTime) (v .:? "nbf") <*>
-        liftM intToPosixTime (v .: "iat")  <*>
-        v .:? "jti" <*>
-        v .: "scp"
+    parseJSON = genericParseJSON omitNothingOptions
 
 
 stripNulls :: [Pair] -> [Pair]
 stripNulls = filter (\(_,v) -> v /= Null)
 
-posixTimeToInt :: POSIXTime -> Word64
+posixTimeToInt :: POSIXTime -> Int64
 posixTimeToInt = fromIntegral . round
 
-intToPosixTime :: Word64 -> POSIXTime
+intToPosixTime :: Int64 -> POSIXTime
 intToPosixTime = fromIntegral

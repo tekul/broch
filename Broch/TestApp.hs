@@ -104,7 +104,7 @@ instance OAuth2Server TestApp where
 
     getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
 
-    saveApproval (Approval uid cid scopes expiry) = runDB $ BP.createApproval uid cid scopes (posixSecondsToUTCTime expiry)
+    saveApproval = runDB . BP.createApproval
 
     getPrivateKey = fmap privateKey getYesod
 

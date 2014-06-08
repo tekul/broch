@@ -12,10 +12,10 @@ import Broch.Model
 now = fromIntegral (1400000000 :: Int) :: POSIXTime
 
 -- Authorization from user "cat" to app
-catAuthorization = Authorization "cat" (clientId appClient) (now - 20) [] (Just "http://app")
+catAuthorization = Authorization "cat" (clientId appClient) (TokenTime $ now - 20) [] (Just "http://app")
 
 loadAuthorization "catcode" = return $ Just catAuthorization
-loadAuthorization "expired" = return $ Just $ catAuthorization {authorizedAt = now - 301}
+loadAuthorization "expired" = return $ Just $ catAuthorization {authorizedAt = TokenTime $ now - 301}
 loadAuthorization _         = return Nothing
 
 authenticateResourceOwner username password

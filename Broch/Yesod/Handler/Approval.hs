@@ -63,6 +63,6 @@ postApprovalR = do
     Just expiryTxt <- lookupPostParam "expiry"
     scope <- lookupPostParams "scope"
     let Right (expiry, _) = decimal expiryTxt
-    saveApproval $ Approval uid clntId (map scopeFromName scope) (fromIntegral (expiry :: Int64))
+    saveApproval $ Approval uid clntId (map scopeFromName scope) (TokenTime $ fromIntegral (expiry :: Int64))
     redirectUltDest ("/" :: Text)
 

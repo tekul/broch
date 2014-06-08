@@ -123,7 +123,7 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
               }
 
   where
-    checkExpiry t = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
+    checkExpiry (TokenTime t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
 
     getGrantType = do
         gt <- requireParam env "grant_type"
@@ -145,12 +145,12 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
     getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap ((map scopeFromName) . (T.splitOn " ")) ms
 
 validateAuthorization :: (Monad m) => Authorization -> Client -> NominalDiffTime -> Maybe Text -> EitherT TokenError m ()
-validateAuthorization (Authorization _ issuedTo issuedAt _ authzURI) client now mURI
+validateAuthorization (Authorization _ issuedTo (TokenTime issuedAt) _ authzURI) client now mURI
     | mURI /= authzURI = left . InvalidGrant $ case mURI of
                                                   Nothing -> "Missing redirect_uri"
                                                   _       -> "Invalid redirect_uri"
-    | clientId client /= issuedTo = left $ InvalidGrant "Code was issue to another client"
-    | now - issuedAt > authCodeTTL = left $ InvalidGrant "Expired code"
+    | clientId client /= issuedTo    = left $ InvalidGrant "Code was issue to another client"
+    | now - issuedAt   > authCodeTTL = left $ InvalidGrant "Expired code"
     | otherwise = return ()
 
 authCodeTTL :: NominalDiffTime
