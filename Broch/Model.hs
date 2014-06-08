@@ -169,6 +169,10 @@ instance ToJSON ResponseType where
                           TokenIdToken -> "id_token token"
                           CodeTokenIdToken -> "code id_token token"
 
+instance FromJSON ResponseType where
+    parseJSON = withText "ResponseType" $ \t ->
+        maybe (fail "Invalid response type") pure $ lookup t responseTypes
+
 responseTypes :: [(Text, ResponseType)]
 responseTypes =
     [ ("code",    Code)

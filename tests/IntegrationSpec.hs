@@ -7,7 +7,8 @@ import Control.Arrow (second)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
-import Data.ByteString.Base64 as B64
+import Data.Aeson (decode)
+import qualified Data.ByteString.Base64 as B64
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
@@ -17,7 +18,7 @@ import qualified Data.Text.IO as TIO
 import Database.Persist.Sql (SqlPersistM, runSqlPersistMPool)
 import Database.Persist.Sqlite (createSqlitePool)
 import System.IO (stderr)
-import Test.Hspec (hspec, Spec)
+import Test.Hspec (hspec)
 import Network.HTTP.Types
 import Network.URI
 import Network.Wai.Test (SResponse(..))
@@ -26,10 +27,11 @@ import Yesod.Auth (Route (..))
 import Yesod.Test
 
 import Broch.TestApp
+import Broch.OpenID.Discovery
 
 
 integrationSpec :: YesodSpec TestApp
-integrationSpec = ydescribe "Authorization endpoint integration tests" $ authCodeSuccessSpec >> badClientSpec
+integrationSpec = ydescribe "Authorization endpoint integration tests" $ authCodeSuccessSpec >> badClientSpec >> openIdConfigSpec
 
 authCodeSuccessSpec =
     ydescribe "A successful authorization_code flow" $ do
@@ -85,7 +87,21 @@ badClientSpec =
             statusIs 302
             -- Resend original request
             getLocationHeader >>= get
+
             statusIs 400
+
+
+openIdConfigSpec =
+    ydescribe "The OpenID connect well-known endpoints" $ do
+
+      yit "OpenID Configuration is returned" $ do
+          get OpenIDConfigurationR
+          statusIs 200
+          Just content <- getResponse
+          let Just cfg = decode $ simpleBody content :: Maybe OpenIDConfiguration
+          liftIO $ putStrLn $ show cfg
+          assertEqual "Returned issuer should match" (issuer cfg) (issuer defaultOpenIDConfiguration)
+
 
 login :: Yesod site => BL.ByteString -> YesodExample site ()
 login uid = postBody ("/auth/page/dummy" :: Text) $ BL.concat ["ident=", uid]
