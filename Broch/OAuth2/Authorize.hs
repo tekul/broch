@@ -41,13 +41,13 @@ data AuthorizationError = InvalidRequest Text
                         | Unavailable
 
 type GenerateCode m = m ByteString
-type ResourceOwnerApproval m = OAuth2User -> Client -> [Scope] -> POSIXTime -> m [Scope]
+type ResourceOwnerApproval m s = s -> Client -> [Scope] -> POSIXTime -> m [Scope]
 
-processAuthorizationRequest :: Monad m => LoadClient m
+processAuthorizationRequest :: (Monad m, Subject s) => LoadClient m
                             -> GenerateCode m
-                            -> CreateAuthorization m
-                            -> ResourceOwnerApproval m
-                            -> OAuth2User
+                            -> CreateAuthorization m s
+                            -> ResourceOwnerApproval m s
+                            -> s
                             -> Map.Map Text [Text]
                             -> POSIXTime
                             -> m (Either EvilClientError Text)
@@ -81,7 +81,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
   where
     getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope])
     getAuthorizationRequest client = do
-        (responseType, requestedScope) <- getGrantData env user client
+        (responseType, requestedScope) <- getGrantData env (subjectId user) client
         case responseType of
             Code  -> return (responseType, requestedScope)
             Token -> Left UnsupportedResponseType -- "Implicit grant is not supported"
@@ -155,12 +155,12 @@ authzCodeResponseURL redirectURI maybeState code scope = T.append redirectURI qs
   where
     qs  = TE.decodeUtf8 $ renderSimpleQuery True params
     params = catMaybes
-       [ Just ("code", code)
-       , fmap (\s -> ("state", TE.encodeUtf8 s)) maybeState
-       , case scope of
+        [ Just ("code", code)
+        , fmap (\s -> ("state", TE.encodeUtf8 s)) maybeState
+        , case scope of
            [] -> Nothing
            s  -> Just ("scope", TE.encodeUtf8 $ T.intercalate " " s)
-       ]
+        ]
 
 
 errorURL :: Bool -> Text -> Maybe Text -> AuthorizationError -> Text
@@ -171,18 +171,18 @@ errorURL useFragment redirectURI maybeState authzError = T.concat [redirectURI, 
                     else "?"
     qs  = TE.decodeUtf8 $ renderSimpleQuery False params
     params = catMaybes
-       [ Just ("error", e)
-       , fmap (\d -> ("error_description", d)) desc
-       , fmap (\s -> ("state", TE.encodeUtf8 s)) maybeState
-       ]
+        [ Just ("error", e)
+        , fmap (\d -> ("error_description", d)) desc
+        , fmap (\s -> ("state", TE.encodeUtf8 s)) maybeState
+        ]
     (e, desc) = case authzError of
-      InvalidRequest d      -> ("invalid_request", Just $ TE.encodeUtf8 d)
-      UnauthorizedClient    -> ("unauthorized client", Nothing)
-      AccessDenied          -> ("access_denied", Nothing)
-      UnsupportedResponseType -> ("unsupported_response_type", Nothing)
-      InvalidScope d        -> ("invalid_scope", Just $ TE.encodeUtf8 d)
-      ServerError           -> ("server_error", Nothing)
-      Unavailable           -> ("temporarily_unavailable", Nothing)
+        InvalidRequest d      -> ("invalid_request", Just $ TE.encodeUtf8 d)
+        UnauthorizedClient    -> ("unauthorized client", Nothing)
+        AccessDenied          -> ("access_denied", Nothing)
+        UnsupportedResponseType -> ("unsupported_response_type", Nothing)
+        InvalidScope d        -> ("invalid_scope", Just $ TE.encodeUtf8 d)
+        ServerError           -> ("server_error", Nothing)
+        Unavailable           -> ("temporarily_unavailable", Nothing)
 
 -- Create a random authorization code
 generateCode :: IO ByteString

@@ -5,6 +5,8 @@ module Broch.OAuth2.AuthorizationSpec where
 
 import Control.Monad.Identity
 import qualified Data.Map as Map
+import Data.Text (Text)
+import Data.Time.Clock.POSIX
 import Test.Hspec
 import Test.HUnit hiding (Test)
 
@@ -20,6 +22,7 @@ doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAutho
 
 gc = return "acode"
 
+createAuthorization :: Text -> Text -> Client -> POSIXTime -> [Scope] -> Maybe Text -> Identity ()
 createAuthorization "acode" "cat" (Client "appclient" _ _ _ _ _ _ _ _) _ _ _ = return ()
 createAuthorization _ _ _ _ _ _ = fail "Invalid authz data"
 

@@ -9,6 +9,7 @@ import Data.Aeson.Types
 import Data.ByteString
 import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
+import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX
 import GHC.Generics
 
@@ -20,7 +21,7 @@ idTokenTTL = 1000
 
 data IdToken = IdToken
     { iss :: Text
-    , sub :: Text
+    , sub :: SubjectId
     , aud :: [Text]
     , exp :: TokenTime
     , iat :: TokenTime
@@ -43,17 +44,18 @@ instance FromJSON IdToken where
 
 -- TODO: Add support for nested JWE token
 
-createIdTokenJws :: (ByteString -> ByteString)    -- JWS encoding
+createIdTokenJws :: Subject s
+                 => (ByteString -> ByteString)    -- JWS encoding
                  -> Text                          -- Issuer
                  -> ClientId                      -- Audience
                  -> Maybe Text                    -- Authorization request nonce
-                 -> OAuth2User                    -- Subject
+                 -> s                             -- Subject
                  -> POSIXTime                     -- Current time
                  -> ByteString
 createIdTokenJws jwsEncode issuer clid nonce subject now =
     jwsEncode . BL.toStrict . encode $ IdToken
         { iss = issuer
-        , sub = subject
+        , sub = subjectId subject
         , aud = [clid]
         , exp = TokenTime $ now + idTokenTTL
         , iat = TokenTime now

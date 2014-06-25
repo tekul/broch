@@ -24,8 +24,9 @@ class OAuth2Server site where
     getClient :: Text
               -> HandlerT site IO (Maybe Client)
 
-    createAuthorization :: Text
-                        -> OAuth2User
+    createAuthorization :: Subject s
+                        => Text
+                        -> s
                         -> Client
                         -> POSIXTime
                         -> [Scope]
@@ -34,9 +35,10 @@ class OAuth2Server site where
 
     authenticateResourceOwner :: Text
                               -> Text
-                              -> HandlerT site IO (Maybe OAuth2User)
+                              -> HandlerT site IO (Maybe SubjectId)
 
-    getApproval :: Text
+    getApproval :: Subject s
+                => s
                 -> Client
                 -> POSIXTime
                 -> HandlerT site IO (Maybe Approval)
@@ -47,7 +49,7 @@ class OAuth2Server site where
     getAuthorization :: Text
                      -> HandlerT site IO (Maybe Authorization)
 
-    createAccessToken :: Maybe OAuth2User   -- ^ The end user (resource owner)
+    createAccessToken :: Maybe SubjectId    -- ^ The end user (resource owner)
                       -> Client             -- ^ The OAuth client the token will be issued to
                       -> GrantType          -- ^ The grant type under which the token was requested
                       -> [Scope]            -- ^ The scope granted to the client

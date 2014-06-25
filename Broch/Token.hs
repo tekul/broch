@@ -33,8 +33,14 @@ tokenTTL = 3600
 refreshTokenTTL :: POSIXTime
 refreshTokenTTL = 3600 * 24
 
-createJwtAccessToken :: RSA.PublicKey -> Maybe OAuth2User -> Client -> GrantType -> [Scope] -> POSIXTime -> IO (ByteString, Maybe ByteString, TokenTTL)
-createJwtAccessToken pubKey mUser client grantType scopes now = do
+createJwtAccessToken :: RSA.PublicKey
+                     -> Maybe SubjectId
+                     -> Client
+                     -> GrantType
+                     -> [Scope]
+                     -> POSIXTime
+                     -> IO (ByteString, Maybe ByteString, TokenTTL)
+createJwtAccessToken pubKey user client grantType scopes now = do
       token <- toJwt claims
       refreshToken <- issueRefresh
       return (token, refreshToken, tokenTTL)
@@ -43,7 +49,7 @@ createJwtAccessToken pubKey mUser client grantType scopes now = do
       issueRefresh
         | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = fmap Just $ toJwt refreshClaims
         | otherwise = return Nothing
-      subject = case mUser of
+      subject = case user of
                   Just s  -> s
                   Nothing -> clientId client
       claims = Claims
@@ -73,6 +79,7 @@ decodeJwtRefreshToken privKey jwt = case claims of
                                         decodeClaims :: (JwtHeader, ByteString) -> Maybe Claims
                                         decodeClaims (_, t) = decode $ fromStrict t
 
+claimsToAccessGrant :: Claims -> AccessGrant
 claimsToAccessGrant claims = AccessGrant
                           { granterId = subj
                           , granteeId = cid claims
@@ -108,12 +115,3 @@ instance ToJSON Claims where
 instance FromJSON Claims where
     parseJSON = genericParseJSON omitNothingOptions
 
-
-stripNulls :: [Pair] -> [Pair]
-stripNulls = filter (\(_,v) -> v /= Null)
-
-posixTimeToInt :: POSIXTime -> Int64
-posixTimeToInt = fromIntegral . round
-
-intToPosixTime :: Int64 -> POSIXTime
-intToPosixTime = fromIntegral

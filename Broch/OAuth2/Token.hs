@@ -1,6 +1,4 @@
-{-# LANGUAGE BangPatterns, TypeFamilies, OverloadedStrings, GADTs,
-             FlexibleContexts, MultiParamTypeClasses,
-             GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns, OverloadedStrings #-}
 
 module Broch.OAuth2.Token
     ( TokenType (..)
@@ -29,16 +27,15 @@ import qualified Broch.OAuth2.Internal as I
 
 data TokenType = Bearer deriving (Show, Eq)
 
-
 instance ToJSON TokenType where
-    toJSON _ = String "bearer"
+    toJSON Bearer = String "bearer"
 
 data AccessTokenResponse = AccessTokenResponse
-  { accessToken  :: ByteString
-  , tokenType    :: TokenType
-  , expiresIn    :: TokenTTL
-  , refreshToken :: Maybe ByteString
-  , scope        :: Maybe ByteString
+  { accessToken  :: !ByteString
+  , tokenType    :: !TokenType
+  , expiresIn    :: !TokenTTL
+  , refreshToken :: !(Maybe ByteString)
+  , tokenScope   :: !(Maybe ByteString)
   } deriving (Show, Eq)
 
 instance ToJSON AccessTokenResponse where
@@ -70,7 +67,8 @@ instance ToJSON TokenError where
                       UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
                       InvalidScope m       -> ("invalid_scope", Just m)
 
-processTokenRequest :: Monad m => Map Text [Text]
+processTokenRequest :: (Monad m)
+                    => Map Text [Text]
                     -> Client
                     -> POSIXTime
                     -> LoadAuthorization m
@@ -80,7 +78,7 @@ processTokenRequest :: Monad m => Map Text [Text]
                     -> m (Either TokenError AccessTokenResponse)
 processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = runEitherT $ do
     grantType <- getGrantType
-    (!mUser, !tokenGrantType, !grantedScope) <- case grantType of
+    (!uid, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam env "code"
             authz <- lift (getAuthorization code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
@@ -89,37 +87,37 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             return (Just $ authorizedSubject authz, AuthorizationCode, authorizedScope authz)
 
         ClientCredentials -> do
-            s <- getClientScope
-            return (Nothing, ClientCredentials, s)
+            scp <- getClientScope
+            return (Nothing, ClientCredentials, scp)
 
         ResourceOwner -> do
             username <- requireParam env "username"
             password <- requireParam env "password"
             s <- getResourceOwnerScope
-            mUser <- lift $ authenticateResourceOwner username password
-            case mUser of
+            user <- lift $ authenticateResourceOwner username password
+            case user of
                 Nothing -> left $ InvalidGrant "authentication failed"
-                _       -> return (mUser, ResourceOwner, s)
+                _       -> return (user, ResourceOwner, s)
 
         RefreshToken -> do
             rt <- requireParam env "refresh_token"
             AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
-            s <- getRefreshScope gs
+            scp <- getRefreshScope gs
             checkExpiry gexp
             if cid /= clientId client
                 then left $ InvalidGrant "Refresh token was issued to a different client"
-                else return (mu, gt', s)
+                else return (mu, gt', scp)
 
         Implicit -> left $ InvalidGrant "Implicit grant is not supported by the token endpoint"
 
 
-    (token, mRefreshToken, tokenTTL) <- lift $ createAccessToken mUser client tokenGrantType grantedScope now
+    (!token, !refToken, !tokenTTL) <- lift $ createAccessToken uid client tokenGrantType grantedScope now
     return AccessTokenResponse
               { accessToken = token
               , tokenType   = Bearer
               , expiresIn   = tokenTTL
-              , refreshToken = mRefreshToken
-              , scope        = Nothing
+              , refreshToken = refToken
+              , tokenScope   = Nothing
               }
 
   where
@@ -144,7 +142,11 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
 
     getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap ((map scopeFromName) . (T.splitOn " ")) ms
 
-validateAuthorization :: (Monad m) => Authorization -> Client -> NominalDiffTime -> Maybe Text -> EitherT TokenError m ()
+validateAuthorization :: (Monad m) => Authorization
+                      -> Client
+                      -> NominalDiffTime
+                      -> Maybe Text
+                      -> EitherT TokenError m ()
 validateAuthorization (Authorization _ issuedTo (TokenTime issuedAt) _ authzURI) client now mURI
     | mURI /= authzURI = left . InvalidGrant $ case mURI of
                                                   Nothing -> "Missing redirect_uri"

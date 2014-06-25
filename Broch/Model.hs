@@ -14,8 +14,19 @@ import Data.Tuple (swap)
 
 type TokenTTL = NominalDiffTime
 
-type OAuth2User = Text
 type ClientId = Text
+
+-- The unique identifier assigned to a user (typically a UUID)
+type SubjectId = Text
+
+class Subject s where
+    subjectId :: s -> SubjectId
+
+-- Temorary hack to get round Yesod auth problems
+
+instance Subject Text where
+    subjectId t = t
+
 
 data Scope = OpenID
            | Profile
@@ -52,22 +63,22 @@ scopeFromName n = case n of
 type LoadClient m = ClientId
                  -> m (Maybe Client)
 
-type CreateAuthorization m = Text
-                          -> OAuth2User
-                          -> Client
-                          -> POSIXTime
-                          -> [Scope]
-                          -> Maybe Text
-                          -> m ()
+type CreateAuthorization m s = Text
+                            -> s
+                            -> Client
+                            -> POSIXTime
+                            -> [Scope]
+                            -> Maybe Text
+                            -> m ()
 
 type LoadAuthorization m = Text
                         -> m (Maybe Authorization)
 
 type AuthenticateResourceOwner m = Text
                                 -> Text
-                                -> m (Maybe OAuth2User)
+                                -> m (Maybe SubjectId)
 
-type LoadApproval m = Text
+type LoadApproval m = SubjectId
                    -> Client
                    -> POSIXTime
                    -> m (Maybe Approval)
@@ -76,7 +87,7 @@ type CreateApproval m = Approval
                      -> m ()
 
 
-type CreateAccessToken m = Maybe OAuth2User   -- ^ The end user (resource owner)
+type CreateAccessToken m = Maybe SubjectId    -- ^ The end user (resource owner)
                         -> Client             -- ^ The OAuth client the token will be issued to
                         -> GrantType          -- ^ The grant type under which the token was requested
                         -> [Scope]            -- ^ The scope granted to the client
@@ -84,12 +95,12 @@ type CreateAccessToken m = Maybe OAuth2User   -- ^ The end user (resource owner)
                         -> m (ByteString, Maybe ByteString, TokenTTL)
 
 type DecodeRefreshToken m = Client
-                       -> Text
-                       -> m (Maybe AccessGrant)
+                         -> Text                  -- ^ The refresh_token parameter
+                         -> m (Maybe AccessGrant)
 
 
 data Authorization = Authorization
-    { authorizedSubject :: OAuth2User
+    { authorizedSubject :: SubjectId
     , authorizedClient :: ClientId
     , authorizedAt :: TokenTime
     , authorizedScope :: [Scope]
@@ -97,18 +108,18 @@ data Authorization = Authorization
     } deriving (Eq, Show)
 
 data AccessGrant = AccessGrant
-    { granterId    :: Maybe Text
-    , granteeId    :: ClientId
-    , accessGrantType    :: GrantType
-    , grantScope   :: [Scope]
-    , grantExpiry  :: TokenTime
+    { granterId       :: Maybe SubjectId
+    , granteeId       :: ClientId
+    , accessGrantType :: GrantType
+    , grantScope      :: [Scope]
+    , grantExpiry     :: TokenTime
     } deriving (Eq, Show)
 
 data Approval = Approval
-    { approverId :: Text -- The user
-    , approvedClient :: ClientId
-    , approvedScope :: [Scope]
-    , approvalExpiry :: TokenTime
+    { approverId      :: SubjectId   -- The user
+    , approvedClient  :: ClientId
+    , approvedScope   :: [Scope]
+    , approvalExpiry  :: TokenTime
     } deriving (Show)
 
 

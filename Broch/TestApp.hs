@@ -71,6 +71,12 @@ isUser = do
         Just _  -> Authorized
 --}
 
+data TestUser = TestUser Text
+
+instance Subject TestUser where
+    subjectId (TestUser u) = u
+
+
 instance YesodAuth TestApp where
     type AuthId TestApp = Text
     getAuthId = return . Just . credsIdent
@@ -92,8 +98,8 @@ instance RenderMessage TestApp FormMessage where
 instance OAuth2Server TestApp where
     getClient cid = runDB $ BP.getClientById cid
 
-    createAuthorization code uid clnt now scp uri = runDB $
-                            BP.createAuthorization code uid clnt now scp uri
+    createAuthorization code user clnt now scp uri = runDB $
+                            BP.createAuthorization code (subjectId user) clnt now scp uri
 
     -- Dummy implementation
     authenticateResourceOwner username password
@@ -102,7 +108,7 @@ instance OAuth2Server TestApp where
 
     getAuthorization code = runDB $ BP.getAuthorizationByCode code
 
-    getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
+    getApproval user clnt now = runDB $ BP.getApproval (subjectId user) (clientId clnt) now
 
     saveApproval = runDB . BP.createApproval
 
