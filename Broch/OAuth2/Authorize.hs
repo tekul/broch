@@ -81,7 +81,11 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
   where
     getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope])
     getAuthorizationRequest client = do
-        (responseType, requestedScope) <- getGrantData env (subjectId user) client
+        rtParam        <- either (Left . InvalidRequest) return $ requireParam env "response_type"
+        responseType   <- maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
+        checkResponseType client responseType
+        maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
+        requestedScope <- checkScope client $ fmap (map scopeFromName) maybeScope
         case responseType of
             Code  -> return (responseType, requestedScope)
             Token -> Left UnsupportedResponseType -- "Implicit grant is not supported"
@@ -89,64 +93,43 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
 
     defaultRedirectURI client = head $ redirectURIs client
 
--- Authorization endpoint helper functions
-
--- "Evil client" checking
--- Get and checks the parameters for which an error should not be reported
--- to the client, but to the resource owner.
-
-
-getClientAndRedirectURI :: (Monad m) => LoadClient m -> Map.Map Text [Text] -> m (Either EvilClientError (Client, Maybe Text))
-getClientAndRedirectURI getClient env = runEitherT $ do
-    cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
-    mURI   <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
-    client <- maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
-    validateRedirectURI client mURI
-    right (client, mURI)
-
-
--- | If a redirect_uri parameter is supplied it must be valid.
---   If none is supplied, the default for the client will be used.
-validateRedirectURI :: (Monad m) => Client -> Maybe Text -> EitherT EvilClientError m ()
-validateRedirectURI client maybeUri = case maybeUri of
-    Just u  -> validate u
-    Nothing -> return ()
-  where
-    validate uri
-      | T.any (== '#') uri   = left FragmentInUri
-      | validRedirectUri uri = right ()
-      | otherwise            = left InvalidRedirectUri
-
-    -- | Check the redirectURI is registered for the client
-    validRedirectUri uri = uri `elem` redirectURIs client
-
--- Other data extraction and validation functions for which errors should
--- be reported to the client
-
-
-
--- response type and scope
-getGrantData :: Map.Map Text [Text] -> Text -> Client -> Either AuthorizationError (ResponseType, [Scope])
-getGrantData env _ client =  do
-    param <- either (Left . InvalidRequest) return $ requireParam env "response_type"
-    rt    <- maybe (Left UnsupportedResponseType) return $ lookup (normalize param) responseTypes
-    checkResponseType rt
-    maybeScope <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
-    scope <-  checkScope $ fmap (map scopeFromName) maybeScope
-    return (rt, scope)
-  where
-    normalize = T.intercalate " " . sort . splitOnSpace
-    splitOnSpace = T.splitOn " "
-
-    checkResponseType rt = case rt of
+    checkResponseType client rt = case rt of
         Code -> unless (AuthorizationCode `elem` authorizedGrantTypes client) $ Left UnauthorizedClient
         _    -> Left UnsupportedResponseType
 
     -- scopes <- validate scopes are allowed for client in question.
     -- Calculate intersection with user scopes
-    checkScope maybeScope = case checkClientScope client maybeScope of
+    checkScope client maybeScope = case checkClientScope client maybeScope of
         Right s -> Right s
         Left  m -> Left $ InvalidRequest m
+
+    normalize = T.intercalate " " . sort . splitOnSpace
+    splitOnSpace = T.splitOn " "
+
+
+-- Authorization endpoint helper functions
+
+-- "Evil client" checking
+-- Get and checks the parameters for which an error should not be reported
+-- to the client, but to the resource owner.
+-- If a redirect_uri parameter is supplied it must be valid.
+-- If none is supplied, the default for the client will be used.
+
+getClientAndRedirectURI :: (Monad m) => LoadClient m -> Map.Map Text [Text] -> m (Either EvilClientError (Client, Maybe Text))
+getClientAndRedirectURI getClient env = runEitherT $ do
+    cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
+    uri    <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
+    client <- maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
+    validateRedirectURI client uri
+    right (client, uri)
+  where
+    -- | Check the redirectURI is registered for the client
+    validateRedirectURI _ Nothing = return ()
+    validateRedirectURI client (Just uri)
+      | T.any (== '#') uri        = left FragmentInUri
+      | otherwise                 = if uri `elem` redirectURIs client
+                                        then right ()
+                                        else left InvalidRedirectUri
 
 
 -- TODO: Refactor redirect methods and add a fragment version
