@@ -20,6 +20,7 @@ Library
                     , Broch.OpenID.Discovery
                     , Broch.OpenID.IdToken
                     , Broch.Persist
+                    , Broch.Scotty
                     , Broch.TestApp
                     , Broch.Yesod.Class
                     , Broch.Yesod.Handler.Approval

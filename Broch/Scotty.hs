@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+module Broch.Scotty where
 
 import           Blaze.ByteString.Builder (toLazyByteString)
 import           Control.Monad (join, forM_)
