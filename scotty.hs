@@ -20,7 +20,6 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as LE
 import           Data.Time.Clock.POSIX
 import           Database.Persist.Sql (runSqlPool, runMigration, runSqlPersistMPool)
-import           Database.Persist.Sqlite (createSqlitePool)
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import qualified Text.Blaze.Html5 as H
@@ -38,18 +37,12 @@ import           Broch.Random
 import           Broch.Token
 import           Broch.TestApp (testClients)
 
-main :: IO ()
-main = do
-    -- Back end storage
-    pool <- createSqlitePool "broch.db3" 1
-    runStderrLoggingT $ runSqlPool (runMigration BP.migrateAll) pool
-    mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
-    -- Create the cookie encryption key
-    csKey <- CS.getDefaultKey
+
+testBroch pool = do
+    liftIO $ runStderrLoggingT $ runSqlPool (runMigration BP.migrateAll) pool
+    liftIO $ mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
     -- Create everything we need for the oauth endpoints
     -- First we need an RSA key for signing tokens
-    (_, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
-
     let runDB = flip runSqlPersistMPool pool
     let getClient = liftIO . runDB . BP.getClientById
     let createAuthorization code uid clnt now scp uri = liftIO $ runDB $
@@ -59,12 +52,32 @@ main = do
     let authenticateResourceOwner username password
             | username == password = return $ Just username
             | otherwise            = return Nothing
+    let saveApproval a = runDB $ BP.createApproval a
+    (_, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
     let decodeRefreshToken _ jwt = return $ decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
     let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
-    let saveApproval a = runDB $ BP.createApproval a
 
-    scotty 3000 $ do
+    brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken
+
+{--
+app :: (MonadIO m, Subject s)
+    => LoadClient m
+    -> CreateAuthorization m s
+    -> LoadAuthorization m
+    -> LoadApproval m
+    -> CreateApproval m
+    -> AuthenticateResourceOwner m
+    -> CreateAccessToken m
+    -> DecodeRefreshToken m
+    -> IO W.Application
+--}
+brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken = do
+    -- Create the cookie encryption key
+    -- TODO: abstract session data access
+    csKey <- CS.getDefaultKey
+
+    scottyApp $ do
         get "/" $ text "Hello"
 
         get "/oauth/authorize" $ do
