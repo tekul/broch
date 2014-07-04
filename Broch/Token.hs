@@ -24,7 +24,7 @@ import qualified Crypto.PubKey.RSA as RSA
 import Broch.Model
 import Broch.Random
 import Jose.Jwa
-import Jose.Jwt
+import Jose.Jwt (JwtHeader)
 import qualified Jose.Jwe as Jwe
 
 tokenTTL :: POSIXTime
