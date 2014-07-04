@@ -4,7 +4,6 @@ module Broch.Scotty where
 import           Blaze.ByteString.Builder (toLazyByteString)
 import           Control.Monad (join, forM_)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.Logger (runStderrLoggingT)
 import qualified Crypto.PubKey.RSA as RSA
 import           Data.Aeson hiding (json)
 import qualified Data.ByteString.Base64 as B64
@@ -20,7 +19,8 @@ import           Data.Text.Read (decimal)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as LE
 import           Data.Time.Clock.POSIX
-import           Database.Persist.Sql (runSqlPool, runMigration, runSqlPersistMPool)
+import           Database.Persist.Sql (runMigrationSilent, runSqlPersistMPool)
+import           Jose.Jwk
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import qualified Text.Blaze.Html5 as H
@@ -33,14 +33,19 @@ import           Web.Scotty
 import           Broch.Model
 import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.Token
+import           Broch.OpenID.Discovery
 import qualified Broch.Persist as BP
 import           Broch.Random
 import           Broch.Token
-import           Broch.TestApp (testClients)
 
+testClients =
+    [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True []
+    , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True []
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False []
+    ]
 
 testBroch pool = do
-    liftIO $ runStderrLoggingT $ runSqlPool (runMigration BP.migrateAll) pool
+    liftIO $ runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
     liftIO $ mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
     -- Create everything we need for the oauth endpoints
     -- First we need an RSA key for signing tokens
@@ -54,35 +59,26 @@ testBroch pool = do
             | username == password = return $ Just username
             | otherwise            = return Nothing
     let saveApproval a = runDB $ BP.createApproval a
-    (_, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
+    (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
     let decodeRefreshToken _ jwt = return $ decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
     let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
+    let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
 
-    brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken
+    brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken keySet
 
-{--
-app :: (MonadIO m, Subject s)
-    => LoadClient m
-    -> CreateAuthorization m s
-    -> LoadAuthorization m
-    -> LoadApproval m
-    -> CreateApproval m
-    -> AuthenticateResourceOwner m
-    -> CreateAccessToken m
-    -> DecodeRefreshToken m
-    -> IO W.Application
---}
-brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken = do
+brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken keySet = do
     -- Create the cookie encryption key
     -- TODO: abstract session data access
     csKey <- CS.getDefaultKey
 
     scottyApp $ do
-        get "/" $ text "Hello"
+        get "/" $ redirect "/home"
+
+        get "/home" $ text "Hello, I'm the home page."
 
         get "/oauth/authorize" $ do
-            request >>= debug . W.rawQueryString
+            -- request >>= debug . W.rawQueryString
 
             user <- getAuthId csKey
             env  <- fmap toMap params
@@ -109,16 +105,13 @@ brochScotty getClient createAuthorization getAuthorization getApproval saveAppro
         post "/login" $ do
             uid  <- param "username" :: ActionM T.Text
             pwd  <- param "password" :: ActionM T.Text
-            liftIO $ B.putStrLn $ B.concat $ fmap TE.encodeUtf8 [uid, " ", pwd]
             user <- liftIO $ authenticateResourceOwner uid pwd
-            liftIO $ putStrLn $ show user
+
             case user of
                 Nothing -> redirect "/login"
                 Just u  -> do
                     setEncryptedCookie csKey "bsid" (TE.encodeUtf8 u)
-                    l <- getCachedLocation csKey "/uhoh"
-                    -- This doesn't work. Overwrites uid cookie: clearCachedLocation
-                    debug l
+                    l <- getCachedLocation csKey "/home"
                     redirect l
 
         get "/approval" $ do
@@ -140,6 +133,10 @@ brochScotty getClient createAuthorization getAuthorization getApproval saveAppro
             redirect l
 
         get "/logout" $ logout
+
+        get "/.well-known/openid-configuration" $ json $ toJSON defaultOpenIDConfiguration
+
+        get "/.well-known/jwks" $ json $ toJSON $ keySet
 
   where
     evilClientError err = status badRequest400 >> text (L.pack $ show err)
@@ -201,7 +198,6 @@ logout = clearCookie "bsid"
 getAuthId :: CS.Key -> ActionM T.Text
 getAuthId key = do
     uid <- getEncryptedCookie key "bsid"
-    liftIO $ putStrLn $ show uid
     case uid of
         Just u  -> return (TE.decodeUtf8 u)
         Nothing -> cacheLocation key >> redirect "/login"

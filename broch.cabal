@@ -3,7 +3,7 @@ Version:            0.1
 Synopsis:           OAuth2/OpenID Connect Server
 Description:
   Implementation of a (server-agnostic) OAuth2 library and
-  a Yesod server implementation.
+  a scotty server implementation.
 Author:             Luke Taylor
 License:            BSD3
 Build-Type:         Simple
@@ -21,12 +21,6 @@ Library
                     , Broch.OpenID.IdToken
                     , Broch.Persist
                     , Broch.Scotty
-                    , Broch.TestApp
-                    , Broch.Yesod.Class
-                    , Broch.Yesod.Handler.Approval
-                    , Broch.Yesod.Handler.Token
-                    , Broch.Yesod.Handler.Authorize
-                    , Broch.Yesod.Handler.OpenID
   Build-Depends:      base >= 4
                     , time
                     , either >= 3.4
@@ -53,11 +47,7 @@ Library
                     , scotty >= 0.7.2
                     , transformers >= 0.3
                     , monad-logger >= 0.3
-                    , wai >= 2.0
-                    , yesod-core >= 1.2 && < 1.3
-                    , yesod-auth >= 1.2 && < 1.4
-                    , yesod-form >= 1.3 && < 1.4
-                    , shakespeare >= 1.0
+                    , wai >= 3.0.0.2
 
 Test-suite tests
   Default-Language:   Haskell2010
@@ -65,11 +55,16 @@ Test-suite tests
   Other-Modules:      Broch.OAuth2.TokenSpec
                     , Broch.OAuth2.AuthorizationSpec
                     , Broch.OAuth2.TestData
-                    , IntegrationSpec
+                    , WaiTest
+                    , WaiIntegrationSpec
   Build-depends:      broch
                     , jose
                     , base
+                    , blaze-builder >= 0.3
+                    , case-insensitive
                     , containers
+                    , cookie
+                    , deepseq
                     , either
                     , time
                     , bytestring
@@ -90,10 +85,9 @@ Test-suite tests
                     , hspec >= 1.6
                     , HUnit >= 1.2 && < 2
                     , QuickCheck >= 2.4
-                    , wai-test
-                    , yesod-auth
-                    , yesod-core
-                    , yesod-test
+                    , wai
+                    , wai-extra >= 3.0.0.1
+
   Ghc-options:        -Wall -rtsopts -fno-warn-missing-signatures
   Hs-source-dirs:     tests
   Main-is:            tests.hs

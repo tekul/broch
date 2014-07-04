@@ -1,15 +1,15 @@
-{-# LANGUAGE TypeFamilies, OverloadedStrings, GADTs,
-             FlexibleContexts, MultiParamTypeClasses, TemplateHaskell,
-             GeneralizedNewtypeDeriving, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-
-import Yesod.Core (toWaiApp)
 import Database.Persist.Sqlite (createSqlitePool)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Handler.Warp (run)
 
-import Broch.TestApp
+import Broch.Scotty
 
 main :: IO ()
-main = createSqlitePool "broch.db3" 5 >>= makeTestApp testClients >>= toWaiApp >>= run 4000 . logStdoutDev
+main = do
+    -- Back end storage
+    pool <- createSqlitePool "broch.db3" 1
+    waiApp <- testBroch pool
+    run 3000 $ logStdoutDev waiApp
 
