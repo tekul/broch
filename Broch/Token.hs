@@ -8,13 +8,10 @@ where
 
 import Prelude hiding (exp)
 
-import Control.Applicative ((<$>), (<*>))
-import Control.Monad (liftM)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict, fromStrict)
-import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import GHC.Generics
@@ -24,7 +21,7 @@ import qualified Crypto.PubKey.RSA as RSA
 import Broch.Model
 import Broch.Random
 import Jose.Jwa
-import Jose.Jwt (JwtHeader)
+import Jose.Jwt (JweHeader)
 import qualified Jose.Jwe as Jwe
 
 tokenTTL :: POSIXTime
@@ -76,7 +73,7 @@ decodeJwtRefreshToken privKey jwt = case claims of
                                     where
                                         claims = fmap decodeClaims $ Jwe.rsaDecode privKey jwt
 
-                                        decodeClaims :: (JwtHeader, ByteString) -> Maybe Claims
+                                        decodeClaims :: (JweHeader, ByteString) -> Maybe Claims
                                         decodeClaims (_, t) = decode $ fromStrict t
 
 claimsToAccessGrant :: Claims -> AccessGrant

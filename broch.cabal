@@ -31,7 +31,7 @@ Library
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
-                    , jose       >= 0.1
+                    , jose-jwt      >= 0.1
                     , cryptohash >= 0.11 && < 0.12
                     , crypto-pubkey >= 0.2 && < 0.3
                     , cipher-aes >= 0.2 && < 0.3
@@ -58,7 +58,7 @@ Test-suite tests
                     , WaiTest
                     , WaiIntegrationSpec
   Build-depends:      broch
-                    , jose
+                    , jose-jwt
                     , base
                     , blaze-builder >= 0.3
                     , case-insensitive

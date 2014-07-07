@@ -6,7 +6,7 @@ import           Data.Aeson
 import           Data.Aeson.Types(Options(..), defaultOptions)
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
-import           Jose.Jwa (Alg (..), Enc (..))
+import           Jose.Jwa
 
 import           Broch.Model
 
@@ -15,20 +15,20 @@ data OpenIDConfiguration = OpenIDConfiguration
     , authorization_endpoint :: Text
     , token_endpoint :: Text
     , userinfo_endpoint :: Text
-    , jwks_uri :: Text -- need to implement keys endpoint
+    , jwks_uri :: Text
     , registration_endpoint :: Maybe Text
     , scopes_supported :: [Text]
     , response_types_supported :: [ResponseType]
     , accr_values_supported :: Maybe [Text]    -- What's this?
     , subject_types_supported :: [Text] -- http://openid.net/specs/openid-connect-core-1_0.html#SubjectIDTypes
-    , id_token_signing_alg_values_supported :: [Alg]
-    , id_token_encryption_alg_values_supported :: Maybe [Alg]
+    , id_token_signing_alg_values_supported :: [JwsAlg]
+    , id_token_encryption_alg_values_supported :: Maybe [JweAlg]
     , id_token_encryption_enc_values_supported :: Maybe [Enc]
-    , user_info_signing_alg_values_supported :: Maybe [Alg]
-    , user_info_encryption_alg_values_supported :: Maybe [Alg]
+    , user_info_signing_alg_values_supported :: Maybe [JwsAlg]
+    , user_info_encryption_alg_values_supported :: Maybe [JweAlg]
     , user_info_encryption_enc_values_supported :: Maybe [Enc]
-    , request_object_signing_alg_values_supported :: Maybe [Alg]
-    , request_object_encryption_alg_values_supported :: Maybe [Alg]
+    , request_object_signing_alg_values_supported :: Maybe [JwsAlg]
+    , request_object_encryption_alg_values_supported :: Maybe [JweAlg]
     , request_object_encryption_enc_values_supported :: Maybe [Enc]
     , token_endpoint_auth_methods_supported :: [Text]
     , token_endpoint_auth_signing_alg_values_supported :: Maybe [Alg]
@@ -57,11 +57,11 @@ instance FromJSON OpenIDConfiguration where
 
 defaultOpenIDConfiguration :: OpenIDConfiguration
 defaultOpenIDConfiguration = OpenIDConfiguration
-    { issuer = "http://localhost:4000"
-    , authorization_endpoint = "http://localhost:4000/oauth2/authorize"
-    , token_endpoint         = "http://localhost:4000/oauth2/token"
-    , userinfo_endpoint      = "http://localhost:4000/connect/user_info"
-    , jwks_uri               = "http://localhost:4000/.well-known/jwks"
+    { issuer = "http://localhost:3000"
+    , authorization_endpoint = "http://localhost:3000/oauth2/authorize"
+    , token_endpoint         = "http://localhost:3000/oauth2/token"
+    , userinfo_endpoint      = "http://localhost:3000/connect/user_info"
+    , jwks_uri               = "http://localhost:3000/.well-known/jwks"
     , registration_endpoint  = Nothing
     , scopes_supported       = ["openid", "profile", "email"]
     , response_types_supported = [Code, Token, CodeIdToken]
