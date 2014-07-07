@@ -2,12 +2,17 @@ Name:               broch
 Version:            0.1
 Synopsis:           OAuth2/OpenID Connect Server
 Description:
-  Implementation of a (server-agnostic) OAuth2 library and
-  a scotty server implementation.
-Author:             Luke Taylor
+  .
+  Implementation of a (web server-agnostic) OAuth2 and OpenID
+  Connect Provider library with a scotty server implementation.
+
+Author:             Luke Taylor <tekul.hs@gmail.com>
+Maintainer:         Luke Taylor <tekul.hs@gmail.com>
 License:            BSD3
+License-File:       LICENSE
 Build-Type:         Simple
-Cabal-Version:      >= 1.10
+Cabal-Version:      >= 1.16
+Category:           OAuth
 
 Library
   Default-Language:   Haskell2010
@@ -48,6 +53,7 @@ Library
                     , transformers >= 0.3
                     , monad-logger >= 0.3
                     , wai >= 3.0.0.2
+  Ghc-Options:        -Wall
 
 Test-suite tests
   Default-Language:   Haskell2010
