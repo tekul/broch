@@ -14,6 +14,10 @@ Build-Type:         Simple
 Cabal-Version:      >= 1.16
 Category:           OAuth
 
+Source-Repository head
+  Type:             git
+  Location:         git://github.com/tekul/broch.git
+
 Library
   Default-Language:   Haskell2010
   Exposed-modules:    Broch.Model
