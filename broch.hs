@@ -10,6 +10,6 @@ main :: IO ()
 main = do
     -- Back end storage
     pool <- createSqlitePool "broch.db3" 1
-    waiApp <- testBroch pool
+    waiApp <- testBroch "http://localhost:3000" pool
     run 3000 $ logStdoutDev waiApp
 

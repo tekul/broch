@@ -5,6 +5,7 @@ module Broch.OpenID.Discovery where
 import           Data.Aeson
 import           Data.Aeson.Types(Options(..), defaultOptions)
 import           Data.Text (Text)
+import qualified Data.Text as T
 import           GHC.Generics (Generic)
 import           Jose.Jwa
 
@@ -55,13 +56,13 @@ instance ToJSON OpenIDConfiguration where
 instance FromJSON OpenIDConfiguration where
     parseJSON = genericParseJSON omitNothingOptions
 
-defaultOpenIDConfiguration :: OpenIDConfiguration
-defaultOpenIDConfiguration = OpenIDConfiguration
-    { issuer = "http://localhost:3000"
-    , authorization_endpoint = "http://localhost:3000/oauth2/authorize"
-    , token_endpoint         = "http://localhost:3000/oauth2/token"
-    , userinfo_endpoint      = "http://localhost:3000/connect/user_info"
-    , jwks_uri               = "http://localhost:3000/.well-known/jwks"
+defaultOpenIDConfiguration :: Text -> OpenIDConfiguration
+defaultOpenIDConfiguration issuerUrl = OpenIDConfiguration
+    { issuer = issuerUrl
+    , authorization_endpoint = T.concat [url, "oauth2/authorize"]
+    , token_endpoint         = T.concat [url, "oauth2/token"]
+    , userinfo_endpoint      = T.concat [url, "connect/user_info"]
+    , jwks_uri               = T.concat [url, ".well-known/jwks"]
     , registration_endpoint  = Nothing
     , scopes_supported       = ["openid", "profile", "email"]
     , response_types_supported = [Code, Token, CodeIdToken]
@@ -90,4 +91,7 @@ defaultOpenIDConfiguration = OpenIDConfiguration
     , op_policy_uri = Nothing
     , op_tos_uri    = Nothing
     }
-
+ where
+    url = case T.last issuerUrl of
+        '/' -> issuerUrl
+        _   -> issuerUrl `T.snoc` '/'

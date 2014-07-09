@@ -44,7 +44,7 @@ testClients =
     , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False []
     ]
 
-testBroch pool = do
+testBroch issuer pool = do
     liftIO $ runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
     liftIO $ mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
     -- Create everything we need for the oauth endpoints
@@ -64,10 +64,8 @@ testBroch pool = do
     let decodeRefreshToken _ jwt = return $ decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
     let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
     let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
+    let config = toJSON $ defaultOpenIDConfiguration issuer
 
-    brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken keySet
-
-brochScotty getClient createAuthorization getAuthorization getApproval saveApproval authenticateResourceOwner createAccessToken decodeRefreshToken keySet = do
     -- Create the cookie encryption key
     -- TODO: abstract session data access
     csKey <- CS.getDefaultKey
@@ -77,28 +75,8 @@ brochScotty getClient createAuthorization getAuthorization getApproval saveAppro
 
         get "/home" $ text "Hello, I'm the home page."
 
-        get "/oauth/authorize" $ do
-            -- request >>= debug . W.rawQueryString
-
-            user <- getAuthId csKey
-            env  <- fmap toMap params
-            now  <- liftIO getPOSIXTime
-
-            either evilClientError  (redirect . L.fromStrict) =<<
-                processAuthorizationRequest getClient (liftIO generateCode) createAuthorization (resourceOwnerApproval csKey getApproval) user env now
-
-        post "/oauth/token" $ do
-            client <- basicAuthClient getClient
-            case client of
-                Left (st, err) -> status st >> text err
-                Right c        -> do
-                    env  <- fmap toMap params
-                    now  <- liftIO getPOSIXTime
-                    resp <- liftIO $ processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
-                    case resp of
-                        Left bad -> status badRequest400 >> json (toJSON bad)
-                        Right tr -> json $ toJSON tr
-
+        get "/oauth/authorize" $ authorizationHandler csKey getClient createAuthorization getApproval
+        post "/oauth/token" $ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
         get "/login" $ do
             html $ renderHtml $ loginPage
 
@@ -134,25 +112,47 @@ brochScotty getClient createAuthorization getAuthorization getApproval saveAppro
 
         get "/logout" $ logout
 
-        get "/.well-known/openid-configuration" $ json $ toJSON defaultOpenIDConfiguration
+        get "/.well-known/openid-configuration" $ json $ toJSON config
 
         get "/.well-known/jwks" $ json $ toJSON $ keySet
 
+
+authorizationHandler csKey getClient createAuthorization getApproval = do
+    -- request >>= debug . W.rawQueryString
+
+    user <- getAuthId csKey
+    env  <- fmap toMap params
+    now  <- liftIO getPOSIXTime
+
+    either evilClientError  (redirect . L.fromStrict) =<<
+        processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval user env now
   where
     evilClientError err = status badRequest400 >> text (L.pack $ show err)
 
-resourceOwnerApproval key getApproval uid client requestedScope now = do
-    -- Try to load a previous approval
-    maybeApproval <- liftIO $ getApproval uid client now
-    case maybeApproval of
-        -- TODO: Check scope overlap and allow asking for extra scope
-        -- not previously granted
-        Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
-        -- Nothing exists: Redirect to approval handler with scopes and client id
-        Nothing -> do
-            let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " (map scopeName requestedScope))]
-            cacheLocation key
-            redirect $ L.fromStrict $ TE.decodeUtf8 $ B.concat ["/approval", query]
+    resourceOwnerApproval uid client requestedScope now = do
+        -- Try to load a previous approval
+        maybeApproval <- liftIO $ getApproval uid client now
+        case maybeApproval of
+            -- TODO: Check scope overlap and allow asking for extra scope
+            -- not previously granted
+            Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
+            -- Nothing exists: Redirect to approval handler with scopes and client id
+            Nothing -> do
+                let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " (map scopeName requestedScope))]
+                cacheLocation csKey
+                redirect $ L.fromStrict $ TE.decodeUtf8 $ B.concat ["/approval", query]
+
+tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = do
+    client <- basicAuthClient getClient
+    case client of
+        Left (st, err) -> status st >> text err
+        Right c        -> do
+            env  <- fmap toMap params
+            now  <- liftIO getPOSIXTime
+            resp <- liftIO $ processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
+            case resp of
+                Left bad -> status badRequest400 >> json (toJSON bad)
+                Right tr -> json $ toJSON tr
 
 
 debug :: (MonadIO m, Show a) => a -> m ()
