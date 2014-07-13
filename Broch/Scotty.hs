@@ -177,11 +177,11 @@ approvalPage client scopes now = H.docTypeHtml $ H.html $ do
             H.input H.! type_ "hidden" H.! name "client_id" H.! value (H.toValue (clientId client))
             H.label H.! for "expiry" $ "Expires after"
             H.select H.! name "expiry" $ do
-                H.option H.! value (H.toValue oneDay) $ "One day"
+                H.option H.! value (H.toValue oneDay) H.! selected "" $ "One day"
                 H.option H.! value (H.toValue oneWeek) $ "One week"
                 H.option H.! value (H.toValue oneMonth) $ "30 days"
             forM_ scopes $ \s -> do
-                H.input H.! type_ "checkBox" H.! name "scope" H.! value (H.toValue s)
+                H.input H.! type_ "checkBox" H.! name "scope" H.! value (H.toValue s) H.! checked ""
                 H.toHtml s
                 H.br
 
