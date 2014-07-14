@@ -3,6 +3,7 @@
 
 module Broch.OAuth2.TokenSpec where
 
+import Control.Applicative ((<$>))
 import Control.Monad.Identity
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -24,10 +25,9 @@ spec = grantTypeParameterErrorsSpec >> authorizationCodeTokenRequestSpec
         >> clientCredentialsTokenRequestSpec >> resourceOwnerGrantSpec
         >> refreshTokenGrantSpec
 
+success t = Right $ AccessTokenResponse t Bearer 987 Nothing (Just "refreshtoken") Nothing
 
-success t = Right $ AccessTokenResponse t Bearer 987 (Just "refreshtoken") Nothing
-
-doToken env client = runIdentity $ processTokenRequest env client now loadAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
+doToken env client = runIdentity $ processTokenRequest env client now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
 
 
 grantTypeParameterErrorsSpec =
@@ -51,6 +51,11 @@ authorizationCodeTokenRequestSpec =
     describe "An authorization code token request (4.1)" $ do
       it "is successful if the request is valid" $
         doToken authCodeEnv appClient @?= success "cat:app"
+
+      it "is returns an id_token if openid scope is requested" $ do
+        let env = Map.insert "code" ["catoic"] authCodeEnv
+        let idt = idToken <$> doToken env appClient
+        idt @?= (Right $ Just "an_id_token")
 
       it "returns invalid_request if code is missing (5.2)" $
         doToken (Map.delete "code" authCodeEnv) appClient @?= (Left $ InvalidRequest "Missing code")
@@ -129,6 +134,10 @@ createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
   where
     u = maybe "" id mUser
     token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ (map scopeName s))
+
+createIdToken :: (Monad m) => CreateIdToken m
+createIdToken _ _ _ _ = return "an_id_token"
+
 
 decodeRefreshToken _ "refreshtoken" = return $ Just catsGrant
 decodeRefreshToken _ "notappstoken" = return $ Just $ catsGrant {granteeId = "otherapp"}

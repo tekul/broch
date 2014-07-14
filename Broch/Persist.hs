@@ -31,6 +31,7 @@ AuthCode sql=authz_code
   clientId Text
   issuedAt UTCTime
   scope  [Text]
+  nonce  Text Maybe
   uri    Text Maybe
   UniqueCode code
   deriving Show
@@ -57,16 +58,16 @@ Client sql=oauth2_client
 |]
 
 
-createAuthorization code userId client now scope mURI =
-    void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) mURI
+createAuthorization code userId client now scope nonce mURI =
+    void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI
 
 getAuthorizationByCode code = do
     record <- getBy $ UniqueCode code
     case record of
         Nothing -> return Nothing
-        Just (Entity key (AuthCode _ uid client issuedAt scope uri)) -> do
+        Just (Entity key (AuthCode _ uid client issuedAt scope nonce uri)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (M.TokenTime $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) uri
+            return $ Just $ M.Authorization uid client (M.TokenTime $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri
 
 createApproval (M.Approval uid clientId scope (M.TokenTime expires)) =
     void $ insert $ Approval uid clientId (map M.scopeName scope) (posixSecondsToUTCTime expires)

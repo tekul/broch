@@ -20,7 +20,9 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as LE
 import           Data.Time.Clock.POSIX
 import           Database.Persist.Sql (runMigrationSilent, runSqlPersistMPool)
+import qualified Jose.Jws as Jws
 import           Jose.Jwk
+import           Jose.Jwa
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import qualified Text.Blaze.Html5 as H
@@ -34,6 +36,7 @@ import           Broch.Model
 import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.Token
 import           Broch.OpenID.Discovery
+import           Broch.OpenID.IdToken
 import qualified Broch.Persist as BP
 import           Broch.Random
 import           Broch.Token
@@ -66,8 +69,8 @@ testBroch issuer pool = do
     -- First we need an RSA key for signing tokens
     let runDB = flip runSqlPersistMPool pool
     let getClient = liftIO . runDB . BP.getClientById
-    let createAuthorization code uid clnt now scp uri = liftIO $ runDB $
-                            BP.createAuthorization code uid clnt now scp uri
+    let createAuthorization code uid clnt now scp n uri = liftIO $ runDB $
+                            BP.createAuthorization code uid clnt now scp n uri
 
     let getAuthorization = liftIO . runDB . BP.getAuthorizationByCode
     let authenticateResourceOwner username password
@@ -96,7 +99,7 @@ testBroch issuer pool = do
         get "/home" $ text "Hello, I'm the home page."
 
         get "/oauth/authorize" $ authorizationHandler csKey getClient createAuthorization getApproval
-        post "/oauth/token" $ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
+        post "/oauth/token" $ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
         get "/login" $ do
             html $ renderHtml $ loginPage
 
@@ -125,9 +128,11 @@ testBroch issuer pool = do
             expiryTxt <- param "expiry"
             scope     <- param "scope"
             let Right (expiry, _) = decimal expiryTxt
-            liftIO $ saveApproval $ Approval user clntId (map scopeFromName scope) ( TokenTime $ fromIntegral (expiry :: Int64))
+                approval = Approval user clntId (map scopeFromName scope) ( TokenTime $ fromIntegral (expiry :: Int64))
+            liftIO $ saveApproval approval
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
+            -- Redirect to authorization doesn't seem to work with oictests
             redirectFull $ L.toStrict l
 
         get "/logout" $ logout
@@ -135,6 +140,10 @@ testBroch issuer pool = do
         get "/.well-known/openid-configuration" $ json $ toJSON config
 
         get "/.well-known/jwks" $ json $ toJSON $ keySet
+  where
+    -- TODO: Implement this
+    createIdToken :: CreateIdToken IO
+    createIdToken uid client nonce now = undefined
 
 redirectFull u = do
     baseUrl <- brochM $ gets issuerUrl
@@ -167,14 +176,14 @@ authorizationHandler csKey getClient createAuthorization getApproval = do
                 cacheLocation csKey
                 redirectFull $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
-tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = do
+tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = do
     client <- basicAuthClient getClient
     case client of
         Left (st, err) -> status st >> text err
         Right c        -> do
             env  <- fmap toMap params
             now  <- liftIO getPOSIXTime
-            resp <- liftIO $ processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken
+            resp <- liftIO $ processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
             case resp of
                 Left bad -> status badRequest400 >> json (toJSON bad)
                 Right tr -> json $ toJSON tr

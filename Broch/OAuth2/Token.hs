@@ -34,18 +34,20 @@ data AccessTokenResponse = AccessTokenResponse
   { accessToken  :: !ByteString
   , tokenType    :: !TokenType
   , expiresIn    :: !TokenTTL
+  , idToken      :: !(Maybe ByteString)
   , refreshToken :: !(Maybe ByteString)
   , tokenScope   :: !(Maybe ByteString)
   } deriving (Show, Eq)
 
 instance ToJSON AccessTokenResponse where
-    toJSON (AccessTokenResponse t tt ex mr ms) =
+    toJSON (AccessTokenResponse t tt ex mi mr ms) =
         let expires = round ex :: Int
         in object $ [ "access_token" .= TE.decodeUtf8 t
                     , "token_type"   .= tt
                     , "expires_in"   .= expires
                     ] ++ maybe [] (\r -> ["refresh_token" .= TE.decodeUtf8 r]) mr
                       ++ maybe [] (\s -> ["scope"         .= TE.decodeUtf8 s]) ms
+                      ++ maybe [] (\i -> ["id_token"      .= TE.decodeUtf8 i]) mi
 
 -- See http://tools.ietf.org/html/rfc6749#section-5.2 for error handling
 data TokenError = InvalidRequest Text        |
@@ -74,21 +76,27 @@ processTokenRequest :: (Monad m)
                     -> LoadAuthorization m
                     -> AuthenticateResourceOwner m
                     -> CreateAccessToken m
+                    -> CreateIdToken m
                     -> DecodeRefreshToken m
                     -> m (Either TokenError AccessTokenResponse)
-processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = runEitherT $ do
+processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runEitherT $ do
     grantType <- getGrantType
-    (!uid, !tokenGrantType, !grantedScope) <- case grantType of
+    (!uid, !idt, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam env "code"
             authz <- lift (getAuthorization code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
             mURI  <- maybeParam env "redirect_uri"
             validateAuthorization authz client now mURI
-            return (Just $ authorizedSubject authz, AuthorizationCode, authorizedScope authz)
+            let scp = authzScope authz
+                usr = authzSubject authz
+            idt <- if OpenID `elem` scp
+                       then fmap Just $ lift $ createIdToken usr client (authzNonce authz) now
+                       else return Nothing
+            return (Just usr, idt, AuthorizationCode, scp)
 
         ClientCredentials -> do
             scp <- getClientScope
-            return (Nothing, ClientCredentials, scp)
+            return (Nothing, Nothing, ClientCredentials, scp)
 
         ResourceOwner -> do
             username <- requireParam env "username"
@@ -97,7 +105,7 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             user <- lift $ authenticateResourceOwner username password
             case user of
                 Nothing -> left $ InvalidGrant "authentication failed"
-                _       -> return (user, ResourceOwner, s)
+                _       -> return (user, Nothing, ResourceOwner, s)
 
         RefreshToken -> do
             rt <- requireParam env "refresh_token"
@@ -106,16 +114,17 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             checkExpiry gexp
             if cid /= clientId client
                 then left $ InvalidGrant "Refresh token was issued to a different client"
-                else return (mu, gt', scp)
+                else return (mu, Nothing, gt', scp)
 
         Implicit -> left $ InvalidGrant "Implicit grant is not supported by the token endpoint"
 
 
     (!token, !refToken, !tokenTTL) <- lift $ createAccessToken uid client tokenGrantType grantedScope now
     return AccessTokenResponse
-              { accessToken = token
-              , tokenType   = Bearer
-              , expiresIn   = tokenTTL
+              { accessToken  = token
+              , tokenType    = Bearer
+              , expiresIn    = tokenTTL
+              , idToken      = idt
               , refreshToken = refToken
               , tokenScope   = Nothing
               }
@@ -147,7 +156,7 @@ validateAuthorization :: (Monad m) => Authorization
                       -> NominalDiffTime
                       -> Maybe Text
                       -> EitherT TokenError m ()
-validateAuthorization (Authorization _ issuedTo (TokenTime issuedAt) _ authzURI) client now mURI
+validateAuthorization (Authorization _ issuedTo (TokenTime issuedAt) _ _ authzURI) client now mURI
     | mURI /= authzURI = left . InvalidGrant $ case mURI of
                                                   Nothing -> "Missing redirect_uri"
                                                   _       -> "Invalid redirect_uri"

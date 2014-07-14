@@ -69,6 +69,7 @@ type CreateAuthorization m s = Text
                             -> POSIXTime
                             -> [Scope]
                             -> Maybe Text
+                            -> Maybe Text
                             -> m ()
 
 type LoadAuthorization m = Text
@@ -94,17 +95,23 @@ type CreateAccessToken m = Maybe SubjectId    -- ^ The end user (resource owner)
                         -> POSIXTime          -- ^ Current time
                         -> m (ByteString, Maybe ByteString, TokenTTL)
 
+type CreateIdToken m = SubjectId    -- ^ The authenticated user
+                    -> Client       -- ^ The client (audience)
+                    -> Maybe Text   -- ^ The client submitted nonce
+                    -> POSIXTime    -- ^ Current time
+                    -> m ByteString -- ^ The token (either a JWS or JWE depending onthe client)
+
 type DecodeRefreshToken m = Client
                          -> Text                  -- ^ The refresh_token parameter
                          -> m (Maybe AccessGrant)
 
-
 data Authorization = Authorization
-    { authorizedSubject :: SubjectId
-    , authorizedClient :: ClientId
-    , authorizedAt :: TokenTime
-    , authorizedScope :: [Scope]
-    , authorizedRedirectUri :: Maybe Text
+    { authzSubject :: !SubjectId
+    , authzClient :: !ClientId
+    , authzAt :: !TokenTime
+    , authzScope :: ![Scope]
+    , authzNonce :: !(Maybe Text)
+    , authzRedirectUri :: !(Maybe Text)
     } deriving (Eq, Show)
 
 data AccessGrant = AccessGrant

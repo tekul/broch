@@ -66,28 +66,29 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                     let err = return . Right . (errorURL False redirectURI state)
                     case getAuthorizationRequest client of
                         Left e -> err e
-                        Right (responseType, requestedScope) -> do
+                        Right (responseType, requestedScope, nonce) -> do
                             scope <- resourceOwnerApproval user client requestedScope now
 
                             case responseType of
                                 Code  -> do
                                     code <- genCode
-                                    createAuthorization (TE.decodeUtf8 code) user client now scope uri
+                                    createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
                                     return . Right $ authzCodeResponseURL redirectURI state code (map scopeName scope)
                                 Token -> do
                                     -- TODO: Create token
                                     error "Implicit grant not supported"
                                 _     -> error "Response type not supported"
   where
-    getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope])
+    getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope], Maybe Text)
     getAuthorizationRequest client = do
         rtParam        <- either (Left . InvalidRequest) return $ requireParam env "response_type"
         responseType   <- maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
         checkResponseType client responseType
         maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
+        nonce          <- either (Left . InvalidRequest) return $ maybeParam env "nonce"
         requestedScope <- checkScope client $ fmap (map scopeFromName) maybeScope
         case responseType of
-            Code  -> return (responseType, requestedScope)
+            Code  -> return (responseType, requestedScope, nonce)
             Token -> Left UnsupportedResponseType -- "Implicit grant is not supported"
             _     -> Left UnsupportedResponseType
 
