@@ -11,7 +11,9 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 import           Data.Int (Int64)
 import           Data.List ((\\))
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
+import           Data.Maybe (fromJust)
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as L
 import qualified Data.Text as T
@@ -37,6 +39,7 @@ import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.Token
 import           Broch.OpenID.Discovery
 import           Broch.OpenID.IdToken
+import           Broch.OpenID.Registration
 import qualified Broch.Persist as BP
 import           Broch.Random
 import           Broch.Token
@@ -83,6 +86,13 @@ testBroch issuer pool = do
     let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
     let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
     let config = toJSON $ defaultOpenIDConfiguration issuer
+    let registerClient :: ClientMetaData -> IO Client
+        registerClient c = do
+            cid <- liftIO generateCode
+            sec <- liftIO generateCode
+            let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
+            runDB $ BP.createClient client
+            return client
 
     -- Create the cookie encryption key
     -- TODO: abstract session data access
@@ -135,6 +145,18 @@ testBroch issuer pool = do
             -- Redirect to authorization doesn't seem to work with oictests
             redirectFull $ L.toStrict l
 
+        post "/connect/register" $ do
+            b <- body
+            case eitherDecode b of
+                Left err -> status badRequest400 >> text (L.pack err)
+                Right v@(Object o) -> do
+                    case fromJSON v of
+                        Error e    -> status badRequest400 >> text (L.pack e)
+                        Success md -> do
+                            c <- liftIO $ registerClient md
+                            -- Cheat here. Add the extra fields to the
+                            -- original JSON object
+                            json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
         get "/logout" $ logout
 
         get "/.well-known/openid-configuration" $ json $ toJSON config
@@ -162,6 +184,8 @@ authorizationHandler csKey getClient createAuthorization getApproval = do
         processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval user env now
   where
     evilClientError err = status badRequest400 >> text (L.pack $ show err)
+
+    fakeApproval _ _ requestedScope _ = return requestedScope
 
     resourceOwnerApproval uid client requestedScope now = do
         -- Try to load a previous approval

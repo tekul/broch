@@ -59,13 +59,13 @@ instance FromJSON OpenIDConfiguration where
 defaultOpenIDConfiguration :: Text -> OpenIDConfiguration
 defaultOpenIDConfiguration issuerUrl = OpenIDConfiguration
     { issuer = issuerUrl
-    , authorization_endpoint = T.concat [url, "oauth2/authorize"]
-    , token_endpoint         = T.concat [url, "oauth2/token"]
+    , authorization_endpoint = T.concat [url, "oauth/authorize"]
+    , token_endpoint         = T.concat [url, "oauth/token"]
     , userinfo_endpoint      = T.concat [url, "connect/user_info"]
     , jwks_uri               = T.concat [url, ".well-known/jwks"]
-    , registration_endpoint  = Nothing
+    , registration_endpoint  = Just $ T.concat [url, "connect/register"]
     , scopes_supported       = ["openid", "profile", "email"]
-    , response_types_supported = [Code, Token, CodeIdToken]
+    , response_types_supported = [Code, Token]
     , accr_values_supported  = Nothing
     , subject_types_supported = ["public"]
     , id_token_signing_alg_values_supported = [RS256, RS384, RS512, HS256, HS384, HS512]

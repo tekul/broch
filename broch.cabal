@@ -28,6 +28,7 @@ Library
                     , Broch.OAuth2.Internal
                     , Broch.OpenID.Discovery
                     , Broch.OpenID.IdToken
+                    , Broch.OpenID.Registration
                     , Broch.Persist
                     , Broch.Scotty
   Build-Depends:      base >= 4
@@ -56,6 +57,7 @@ Library
                     , scotty >= 0.7.2
                     , stm >= 2.4
                     , transformers >= 0.3
+                    , unordered-containers >= 0.2
                     , monad-logger >= 0.3
                     , wai >= 3.0.0.2
   Ghc-Options:        -Wall

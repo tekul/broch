@@ -135,6 +135,7 @@ data GrantType = AuthorizationCode
                | ResourceOwner
                | ClientCredentials
                | Implicit
+               | JwtBearer         -- ^ <http://tools.ietf.org/html/draft-ietf-oauth-jwt-bearer-09>
                  deriving (Show, Read, Eq)
 
 instance ToJSON GrantType where
@@ -153,6 +154,7 @@ grantTypes =
     , ("client_credentials", ClientCredentials)
 -- implicit is invalid, but someone might use it by mistake
     , ("implicit",           Implicit)
+    , ("urn:ietf:params:oauth:grant-type:jwt-bearer:", JwtBearer)
     ]
 
 grantTypeNames :: [(GrantType, Text)]
@@ -160,6 +162,24 @@ grantTypeNames = map swap grantTypes
 
 grantTypeName :: GrantType -> Text
 grantTypeName gt = fromJust $ lookup gt grantTypeNames
+
+data ClientAuthMethod = ClientSecretBasic
+                      | ClientSecretJwt
+                      | PrivateKeyJwt
+                        deriving (Eq, Show)
+
+instance FromJSON ClientAuthMethod where
+    parseJSON = withText "ClientAuthMethod" $ \t -> case t of
+        "client_secret_basic" -> pure ClientSecretBasic
+        "client_secret_jwt"   -> pure ClientSecretJwt
+        _                     -> fail("Unknown or unsupported client auth method")
+
+instance ToJSON ClientAuthMethod where
+    toJSON a = case a of
+        ClientSecretBasic -> String "client_secret_basic"
+        ClientSecretJwt   -> String "client_secret_jwt"
+        PrivateKeyJwt     -> String "private_secret_jwt"
+
 
 data Client = Client
     { clientId :: ClientId
