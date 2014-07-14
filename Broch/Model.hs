@@ -163,7 +163,6 @@ data Client = Client
     , refreshTokenValidity :: Int
     , allowedScope :: [Scope]
     , autoapprove :: Bool
-    , roles :: [Text]
     }
 
 data ResponseType = Code

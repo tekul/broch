@@ -52,7 +52,6 @@ Client sql=oauth2_client
   refreshTokenValidity Int
   allowedScope   [Text]
   autoapprove    Bool
-  roles          [Text]
   UniqueClientId clientId
   deriving Show
 |]
@@ -85,13 +84,13 @@ getApproval uid cid now = do
 
 deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 
-createClient (M.Client cid ms gs uris atv rtv scps appr roles) =
-    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr roles
+createClient (M.Client cid ms gs uris atv rtv scps appr) =
+    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr
 
 getClientById cid = do
     record <- getBy $ UniqueClientId cid
     case record of
         Nothing -> return Nothing
-        Just (Entity key (Client _ ms gs uris atv rtv scps appr roles)) -> do
+        Just (Entity key (Client _ ms gs uris atv rtv scps appr)) -> do
             let grants = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
-            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr roles
+            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr
