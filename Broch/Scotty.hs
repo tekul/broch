@@ -1,9 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving #-}
 module Broch.Scotty where
 
 import           Blaze.ByteString.Builder (toLazyByteString)
-import           Control.Monad (join, forM_)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Control.Concurrent.STM
+import           Control.Monad.Reader
 import qualified Crypto.PubKey.RSA as RSA
 import           Data.Aeson hiding (json)
 import qualified Data.ByteString.Base64 as B64
@@ -28,7 +28,7 @@ import           Text.Blaze.Html5.Attributes hiding (scope)
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Web.ClientSession as CS
 import           Web.Cookie
-import           Web.Scotty
+import           Web.Scotty.Trans
 
 import           Broch.Model
 import           Broch.OAuth2.Authorize
@@ -43,6 +43,21 @@ testClients =
     , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True
     , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False
     ]
+
+
+newtype BrochState = BrochState { issuerUrl :: T.Text}
+
+newtype BrochM a = BrochM { runBrochM :: ReaderT (TVar BrochState) IO a }
+                     deriving (Functor, Monad, MonadIO, MonadReader (TVar BrochState))
+
+brochM :: MonadTrans t => BrochM a -> t BrochM a
+brochM = lift
+
+gets :: (BrochState -> b) -> BrochM b
+gets f = ask >>= liftIO . readTVarIO >>= return . f
+
+modify :: (BrochState -> BrochState) -> BrochM ()
+modify f = ask >>= liftIO . atomically . flip modifyTVar' f
 
 testBroch issuer pool = do
     liftIO $ runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
@@ -70,8 +85,13 @@ testBroch issuer pool = do
     -- TODO: abstract session data access
     csKey <- CS.getDefaultKey
 
-    scottyApp $ do
-        get "/" $ redirect "/home"
+    sync <- newTVarIO $ BrochState { issuerUrl = issuer }
+
+    let runM m = runReaderT (runBrochM m) sync
+        runActionToIO = runM
+
+    scottyAppT runM runActionToIO $ do
+        get "/" $ redirectFull "/home" :: ScottyT Text BrochM ()
 
         get "/home" $ text "Hello, I'm the home page."
 
@@ -81,16 +101,16 @@ testBroch issuer pool = do
             html $ renderHtml $ loginPage
 
         post "/login" $ do
-            uid  <- param "username" :: ActionM T.Text
-            pwd  <- param "password" :: ActionM T.Text
+            uid  <- param "username"
+            pwd  <- param "password"
             user <- liftIO $ authenticateResourceOwner uid pwd
 
             case user of
-                Nothing -> redirect "/login"
+                Nothing -> redirectFull "/login"
                 Just u  -> do
                     setEncryptedCookie csKey "bsid" (TE.encodeUtf8 u)
                     l <- getCachedLocation csKey "/home"
-                    redirect l
+                    redirectFull $ L.toStrict l
 
         get "/approval" $ do
             user   <- getAuthId csKey
@@ -108,7 +128,7 @@ testBroch issuer pool = do
             liftIO $ saveApproval $ Approval user clntId (map scopeFromName scope) ( TokenTime $ fromIntegral (expiry :: Int64))
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
-            redirect l
+            redirectFull $ L.toStrict l
 
         get "/logout" $ logout
 
@@ -116,6 +136,11 @@ testBroch issuer pool = do
 
         get "/.well-known/jwks" $ json $ toJSON $ keySet
 
+redirectFull u = do
+    baseUrl <- brochM $ gets issuerUrl
+    let location = L.fromStrict $ T.concat [baseUrl, u]
+    liftIO $ putStrLn $ "Redirecting to: " ++ show location
+    redirect location
 
 authorizationHandler csKey getClient createAuthorization getApproval = do
     -- request >>= debug . W.rawQueryString
@@ -140,7 +165,7 @@ authorizationHandler csKey getClient createAuthorization getApproval = do
             Nothing -> do
                 let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " (map scopeName requestedScope))]
                 cacheLocation csKey
-                redirect $ L.fromStrict $ TE.decodeUtf8 $ B.concat ["/approval", query]
+                redirectFull $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
 tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken decodeRefreshToken = do
     client <- basicAuthClient getClient
@@ -195,12 +220,11 @@ approvalPage client scopes now = H.docTypeHtml $ H.html $ do
 
 logout = clearCookie "bsid"
 
-getAuthId :: CS.Key -> ActionM T.Text
 getAuthId key = do
     uid <- getEncryptedCookie key "bsid"
     case uid of
         Just u  -> return (TE.decodeUtf8 u)
-        Nothing -> cacheLocation key >> redirect "/login"
+        Nothing -> cacheLocation key >> redirectFull "/login"
 
 clearCachedLocation = clearCookie "loc"
 
@@ -208,7 +232,6 @@ cacheLocation key = do
     r <- request
     setEncryptedCookie key "loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
 
-getCachedLocation :: CS.Key -> Text -> ActionM Text
 getCachedLocation key defaultUrl = getEncryptedCookie key "loc" >>=
                                       return . (maybe defaultUrl (L.fromStrict . TE.decodeUtf8))
 
@@ -225,12 +248,10 @@ setEncryptedCookie key n v = do
     v' <- liftIO $ CS.encryptIO key v
     setCookie n v'
 
-setCookie :: B.ByteString -> B.ByteString -> ActionM ()
 setCookie n v = setHeader "Set-Cookie" $ renderSetCookie' $ makeCookie n v
 
 clearCookie n = setHeader "Set-Cookie" $ renderSetCookie' $ (makeCookie n "") { setCookieMaxAge = Just 0 }
 
-getCookie :: B.ByteString -> ActionM (Maybe B.ByteString)
 getCookie name = do
     cookies <- fmap (fmap (parseCookies . BL.toStrict . LE.encodeUtf8)) $ header "Cookie"
     case cookies of
@@ -241,7 +262,6 @@ getCookie name = do
 toMap :: [(Text, Text)] -> Map.Map T.Text [T.Text]
 toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [(L.toStrict y)])
 
-basicAuthClient :: LoadClient ActionM -> ActionM (Either (Status, Text) Client)
 basicAuthClient getClient = do
     r <- request
     case basicAuthCredentials r of

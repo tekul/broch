@@ -11,6 +11,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX
 import Database.Persist.Sqlite (createSqlitePool)
 import Jose.Jwk
+-- import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Test hiding (request)
 import Test.Hspec
 
@@ -83,7 +84,7 @@ openIdConfigSpec =
             statusIs 200
             json1 <- withResponse $ return . simpleBody
             let Just cfg = decode $ json1 :: Maybe OpenIDConfiguration
-            assertEqual "Returned issuer should match" (issuer cfg) (issuer $ defaultOpenIDConfiguration "http://testapp/")
+            assertEqual "Returned issuer should match" (issuer cfg) (issuer $ defaultOpenIDConfiguration "http://testapp")
             get $ TE.encodeUtf8 $ jwks_uri cfg
             json2 <- withResponse $ return . simpleBody
             let Just jwks = decode $ json2 :: Maybe JwkSet
@@ -96,7 +97,7 @@ authCodeRequest cid redirectUri scopes = getP "/oauth/authorize" params
         _  -> ("scope", B.intercalate " " scopes) : baseParams
     baseParams = [("client_id", cid), ("state", "1234"), ("response_type", "code"), ("redirect_uri", redirectUri)]
 
-testapp = createSqlitePool ":memory:" 2 >>= testBroch "http://testapp/" >>= return -- . logStdoutDev
+testapp = createSqlitePool ":memory:" 2 >>= testBroch "http://testapp" >>= return -- . logStdoutDev
 
 login uid pass = post "/login" [("username", uid), ("password", pass)]
 

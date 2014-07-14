@@ -54,6 +54,7 @@ Library
                     , persistent >= 1.2 && < 1.4
                     , persistent-template >= 1.2
                     , scotty >= 0.7.2
+                    , stm >= 2.4
                     , transformers >= 0.3
                     , monad-logger >= 0.3
                     , wai >= 3.0.0.2

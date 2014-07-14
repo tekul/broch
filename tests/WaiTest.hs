@@ -52,7 +52,11 @@ get :: ByteString -> WaiTest ()
 get url = getP url []
 
 getP :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
-getP url params = request "" $ mkRequest "GET" $ B.concat [url, H.renderQuery True $ toQuery params]
+getP url params = request "" $ mkRequest "GET" $ B.concat [strippedUrl, H.renderQuery True $ toQuery params]
+  where
+    strippedUrl = if B.isPrefixOf "http" url
+                      then B.dropWhile ((/=) '/') $ B.drop 8 url
+                      else url
 
 post :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
 post url params = let content = H.renderQuery False $ toQuery params
