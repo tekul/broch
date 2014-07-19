@@ -44,18 +44,17 @@ instance FromJSON IdToken where
 
 -- TODO: Add support for nested JWE token
 
-createIdTokenJws :: Subject s
-                 => (ByteString -> ByteString)    -- JWS encoding
+createIdTokenJws :: (ByteString -> ByteString)    -- JWS encoding
                  -> Text                          -- Issuer
                  -> ClientId                      -- Audience
                  -> Maybe Text                    -- Authorization request nonce
-                 -> s                             -- Subject
+                 -> SubjectId                     -- Subject
                  -> POSIXTime                     -- Current time
                  -> ByteString
 createIdTokenJws jwsEncode issuer clid nonce subject now =
     jwsEncode . BL.toStrict . encode $ IdToken
         { iss = issuer
-        , sub = subjectId subject
+        , sub = subject
         , aud = [clid]
         , exp = TokenTime $ now + idTokenTTL
         , iat = TokenTime now

@@ -93,6 +93,8 @@ testBroch issuer pool = do
             let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
             runDB $ BP.createClient client
             return client
+        createIdToken uid client nonce now = return $ createIdTokenJws (Jws.rsaEncode RS256 kPr) issuer (clientId client) nonce uid now
+
 
     -- Create the cookie encryption key
     -- TODO: abstract session data access
@@ -162,10 +164,7 @@ testBroch issuer pool = do
         get "/.well-known/openid-configuration" $ json $ toJSON config
 
         get "/.well-known/jwks" $ json $ toJSON $ keySet
-  where
-    -- TODO: Implement this
-    createIdToken :: CreateIdToken IO
-    createIdToken uid client nonce now = undefined
+
 
 redirectFull u = do
     baseUrl <- brochM $ gets issuerUrl
