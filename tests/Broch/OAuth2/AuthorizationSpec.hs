@@ -17,7 +17,7 @@ spec :: Spec
 spec = describe "Authorization endpoint requests" $ evilClientErrorSpec >> authzRequestErrorSpec
 
 
-doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAuthorization resourceOwnerApproval "cat"  env now
+doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken "cat"  env now
 
 gc = return "acode"
 
@@ -26,6 +26,9 @@ createAuthorization "acode" "cat" (Client "appclient" _ _ _ _ _ _ _) _ _ _ _ = r
 createAuthorization _ _ _ _ _ _ _ = fail "Invalid authz data"
 
 resourceOwnerApproval _ _ scope _= return scope
+
+createIdToken = undefined
+createAccessToken = undefined
 
 evilClientErrorSpec =
     describe "A potentially malicious client request" $ do

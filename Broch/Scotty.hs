@@ -110,7 +110,7 @@ testBroch issuer pool = do
 
         get "/home" $ text "Hello, I'm the home page."
 
-        get "/oauth/authorize" $ authorizationHandler csKey getClient createAuthorization getApproval
+        get "/oauth/authorize" $ authorizationHandler csKey getClient createAuthorization getApproval createAccessToken createIdToken
         post "/oauth/token" $ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
         get "/login" $ do
             html $ renderHtml $ loginPage
@@ -140,7 +140,7 @@ testBroch issuer pool = do
             expiryTxt <- param "expiry"
             scope     <- param "scope"
             let Right (expiry, _) = decimal expiryTxt
-                approval = Approval user clntId (map scopeFromName scope) ( TokenTime $ fromIntegral (expiry :: Int64))
+                approval = Approval user clntId (map scopeFromName scope) (TokenTime $ fromIntegral (expiry :: Int64))
             liftIO $ saveApproval approval
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
@@ -172,15 +172,18 @@ redirectFull u = do
     liftIO $ putStrLn $ "Redirecting to: " ++ show location
     redirect location
 
-authorizationHandler csKey getClient createAuthorization getApproval = do
+authorizationHandler csKey getClient createAuthorization getApproval createAccessToken createIdToken = do
     -- request >>= debug . W.rawQueryString
 
     user <- getAuthId csKey
     env  <- fmap toMap params
     now  <- liftIO getPOSIXTime
 
-    either evilClientError  (redirect . L.fromStrict) =<<
-        processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval user env now
+    response <- processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now
+    case response of
+        Left e    -> evilClientError e
+        Right url -> redirectFull url
+
   where
     evilClientError err = status badRequest400 >> text (L.pack $ show err)
 
@@ -206,7 +209,7 @@ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessTo
         Right c        -> do
             env  <- fmap toMap params
             now  <- liftIO getPOSIXTime
-            resp <- liftIO $ processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+            resp <- processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
             case resp of
                 Left bad -> status badRequest400 >> json (toJSON bad)
                 Right tr -> json $ toJSON tr

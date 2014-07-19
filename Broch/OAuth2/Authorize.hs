@@ -47,11 +47,13 @@ processAuthorizationRequest :: (Monad m, Subject s) => LoadClient m
                             -> GenerateCode m
                             -> CreateAuthorization m s
                             -> ResourceOwnerApproval m s
+                            -> CreateAccessToken m
+                            -> CreateIdToken m
                             -> s
                             -> Map.Map Text [Text]
                             -> POSIXTime
                             -> m (Either EvilClientError Text)
-processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval user env now = do
+processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = do
     curi <- getClientAndRedirectURI getClient env
     case curi of
         Left e -> return $ Left e
@@ -64,6 +66,9 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                 Left badState -> return . Right $ errorURL False redirectURI Nothing (InvalidRequest badState)
                 Right state   -> do
                     let err = return . Right . (errorURL False redirectURI state)
+                    -- TODO: Need to consider response_type separately as
+                    -- it also influences the default error url (fragment
+                    -- or query)
                     case getAuthorizationRequest client of
                         Left e -> err e
                         Right (responseType, requestedScope, nonce) -> do
@@ -77,6 +82,10 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                                 Token -> do
                                     -- TODO: Create token
                                     error "Implicit grant not supported"
+                                IdTokenResponse -> do
+                                    idt <- createIdToken (subjectId user) client nonce now
+                                    return . Right $ implicitResponseURL redirectURI state Nothing (Just idt)
+
                                 _     -> error "Response type not supported"
   where
     getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope], Maybe Text)

@@ -8,6 +8,7 @@ where
 
 import Prelude hiding (exp)
 
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.ByteString (ByteString)
@@ -30,16 +31,17 @@ tokenTTL = 3600
 refreshTokenTTL :: POSIXTime
 refreshTokenTTL = 3600 * 24
 
-createJwtAccessToken :: RSA.PublicKey
+createJwtAccessToken :: (MonadIO m)
+                     => RSA.PublicKey
                      -> Maybe SubjectId
                      -> Client
                      -> GrantType
                      -> [Scope]
                      -> POSIXTime
-                     -> IO (ByteString, Maybe ByteString, TokenTTL)
+                     -> m (ByteString, Maybe ByteString, TokenTTL)
 createJwtAccessToken pubKey user client grantType scopes now = do
-      token <- toJwt claims
-      refreshToken <- issueRefresh
+      token        <- liftIO $ toJwt claims
+      refreshToken <- liftIO issueRefresh
       return (token, refreshToken, tokenTTL)
     where
       toJwt t = withCPRG $ \cprg -> Jwe.rsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
