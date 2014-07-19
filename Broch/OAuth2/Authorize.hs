@@ -13,7 +13,7 @@ import Control.Monad.Trans.Either
 import Data.ByteString (ByteString)
 import Data.List (sort)
 import Data.Time.Clock.POSIX
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
 import qualified Data.ByteString.Base16 as Hex
@@ -133,32 +133,27 @@ getClientAndRedirectURI getClient env = runEitherT $ do
                                         else left InvalidRedirectUri
 
 
--- TODO: Refactor redirect methods and add a fragment version
 authzCodeResponseURL :: Text -> Maybe Text -> ByteString -> [Text] -> Text
-authzCodeResponseURL redirectURI maybeState code scope = T.append redirectURI qs
+authzCodeResponseURL redirectURI state code scope = buildURL False redirectURI state params
   where
-    qs  = TE.decodeUtf8 $ renderSimpleQuery True params
-    params = catMaybes
-        [ Just ("code", code)
-        , fmap (\s -> ("state", TE.encodeUtf8 s)) maybeState
-        , case scope of
-           [] -> Nothing
-           s  -> Just ("scope", TE.encodeUtf8 $ T.intercalate " " s)
-        ]
+    params = ("code", code) : case scope of
+        [] -> []
+        s  -> [("scope", TE.encodeUtf8 $ T.intercalate " " s)]
 
+implicitResponseURL :: Text
+                    -> Maybe Text
+                    -> Maybe ByteString
+                    -> Maybe ByteString
+                    -> Text
+implicitResponseURL redirectURI state accessToken idToken = buildURL True redirectURI state params
+  where
+    params   = maybe atParams (\t -> ("id_token", t) : atParams) $ idToken
+    atParams = maybe [] (\t -> [("access_token", t), ("token_type", "bearer")]) $ accessToken
 
 errorURL :: Bool -> Text -> Maybe Text -> AuthorizationError -> Text
-errorURL useFragment redirectURI maybeState authzError = T.concat [redirectURI, separator, qs]
+errorURL useFragment redirectURI state authzError = buildURL useFragment redirectURI state params
   where
-    separator = if useFragment
-                    then "#"
-                    else "?"
-    qs  = TE.decodeUtf8 $ renderSimpleQuery False params
-    params = catMaybes
-        [ Just ("error", e)
-        , fmap (\d -> ("error_description", d)) desc
-        , fmap (\s -> ("state", TE.encodeUtf8 s)) maybeState
-        ]
+    params = ("error", e) : maybe [] (\d -> [("error_description", d)]) desc
     (e, desc) = case authzError of
         InvalidRequest d      -> ("invalid_request", Just $ TE.encodeUtf8 d)
         UnauthorizedClient    -> ("unauthorized client", Nothing)
@@ -167,6 +162,13 @@ errorURL useFragment redirectURI maybeState authzError = T.concat [redirectURI, 
         InvalidScope d        -> ("invalid_scope", Just $ TE.encodeUtf8 d)
         ServerError           -> ("server_error", Nothing)
         Unavailable           -> ("temporarily_unavailable", Nothing)
+
+buildURL :: Bool -> Text -> Maybe Text -> [SimpleQueryItem] -> Text
+buildURL useFragment redirectURI state params = T.concat [redirectURI, separator, qs]
+  where
+    separator = if useFragment then "#" else "?"
+    ps = maybe params (\s -> ("state", TE.encodeUtf8 s) : params) state
+    qs = TE.decodeUtf8 $ renderSimpleQuery False ps
 
 -- Create a random authorization code
 generateCode :: IO ByteString

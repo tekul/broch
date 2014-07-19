@@ -45,9 +45,9 @@ evilClientErrorSpec =
 authzRequestErrorSpec =
     describe "A malformed authorization request" $ do
       it "returns invalid_request for a duplicate state parameter" $
-        doAuthz (Map.insert "state" ["astate", "anotherstate"] createEnv) @=? Right "http://app?error=invalid_request&error_description=Duplicate%20state"
+        doAuthz (Map.insert "state" ["astate", "anotherstate"] createEnv) @?= Right "http://app?error=invalid_request&error_description=Duplicate%20state"
       it "returns invalid_request for a missing response_type" $
-        doAuthz (Map.delete "response_type" createEnv) @=? Right "http://app?error=invalid_request&error_description=Missing%20response_type&state=somestate"
+        doAuthz (Map.delete "response_type" createEnv) @?= Right "http://app?state=somestate&error=invalid_request&error_description=Missing%20response_type"
 
 
 createEnv = Map.fromList [("client_id", ["app"]), ("state", ["somestate"]), ("redirect_uri", ["http://app"]), ("response_type", ["code"])]
