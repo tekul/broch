@@ -52,7 +52,7 @@ scopeDescription s = case s of
     Address -> "your address"
     CustomScope n -> n
 
-scopeFromName n = case n of
+scopeFromName name = case name of
     "openid"  -> OpenID
     "profile" -> Profile
     "email"   -> Email
@@ -196,6 +196,7 @@ data ResponseType = Code
                   | Token
                   | IdTokenResponse
                   | CodeIdToken
+                  | CodeToken
                   | TokenIdToken
                   | CodeTokenIdToken
                     deriving (Eq, Show)
@@ -206,6 +207,7 @@ instance ToJSON ResponseType where
                           Token -> "token"
                           IdTokenResponse -> "id_token"
                           CodeIdToken -> "code id_token"
+                          CodeToken -> "code token"
                           TokenIdToken -> "id_token token"
                           CodeTokenIdToken -> "code id_token token"
 
@@ -219,6 +221,7 @@ responseTypes =
     , ("token",   Token)
     , ("id_token", IdTokenResponse)
     , ("code id_token",  CodeIdToken)
+    , ("code token",  CodeToken)
     , ("id_token token", TokenIdToken)
     , ("code id_token token", CodeTokenIdToken)
     ]
