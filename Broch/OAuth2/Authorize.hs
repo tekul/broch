@@ -7,10 +7,11 @@ module Broch.OAuth2.Authorize
     )
 where
 
-import Control.Monad (liftM, unless)
-import Control.Monad.Error (lift)
+import Control.Monad (liftM, liftM2, unless)
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Either
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as B
 import Data.List (sort)
 import Data.Time.Clock.POSIX
 import Data.Maybe (fromMaybe)
@@ -59,53 +60,95 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         Left e -> return $ Left e
         Right (client, uri) -> do
             let redirectURI = fromMaybe (defaultRedirectURI client) uri
-            -- Get the state parameter
-            -- Needs to be separate since later errors require that it is returned to
-            -- the client with the error message.
-            case maybeParam env "state" of
-                Left badState -> return . Right $ errorURL False redirectURI Nothing (InvalidRequest badState)
-                Right state   -> do
-                    let err = return . Right . (errorURL False redirectURI state)
-                    -- TODO: Need to consider response_type separately as
-                    -- it also influences the default error url (fragment
-                    -- or query)
-                    case getAuthorizationRequest client of
-                        Left e -> err e
-                        Right (responseType, requestedScope, nonce) -> do
-                            scope <- resourceOwnerApproval user client requestedScope now
 
-                            case responseType of
-                                Code  -> do
-                                    code <- genCode
-                                    createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
-                                    return . Right $ authzCodeResponseURL redirectURI state code (map scopeName scope)
-                                Token -> do
-                                    -- TODO: Create token
-                                    error "Implicit grant not supported"
-                                IdTokenResponse -> do
-                                    idt <- createIdToken (subjectId user) client nonce now
-                                    return . Right $ implicitResponseURL redirectURI state Nothing (Just idt)
+            responseUrl <- authorizationResponseURL client uri
+            return . Right $ T.concat [redirectURI, responseUrl]
 
-                                _     -> error "Response type not supported"
   where
-    getAuthorizationRequest :: Client -> Either AuthorizationError (ResponseType, [Scope], Maybe Text)
+    authorizationResponseURL client uri =
+        case getAuthorizationRequest client of
+            Left err -> return err
+            Right (state, responseType, requestedScope, nonce) -> do
+                scope <- resourceOwnerApproval user client requestedScope now
+                let separator         = case responseType of
+                                          Code -> '?'
+                                          _    -> '#'
+                    codeResponse      = doCode client scope nonce uri
+                    tokenResponse     = doAccessToken client scope
+                    idTokenResponse   = doIdToken client nonce
+
+                responseParams <- case responseType of
+                    Code             -> liftM2 (:) codeResponse $ scopeParam scope
+                    Token            -> tokenResponse
+                    IdTokenResponse  -> idTokenResponse
+                    CodeToken        -> liftM2 (:) codeResponse tokenResponse
+                    -- TODO: These need changes to the id_token
+                    -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
+                    TokenIdToken     -> undefined
+                    CodeIdToken      -> undefined
+                    CodeTokenIdToken -> undefined
+
+                return $ T.cons separator $ TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
+
+    doCode client scope nonce uri = do
+        code <- genCode
+        createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
+        return ("code", code)
+
+    doAccessToken client scope = do
+        (t, _, ttl) <- createAccessToken (Just $ subjectId user) client Implicit scope now
+        let expires = B.pack $ show (round ttl :: Int)
+        return [("access_token", t), ("token_type", "bearer"), ("expires_in", expires)]
+
+    doIdToken client nonce = do
+        t <- createIdToken (subjectId user) client nonce now
+        return [("id_token", t)]
+
+    scopeParam scope = return $ case scope of
+        [] -> []
+        s  -> [("scope", TE.encodeUtf8 $ T.intercalate " " $ map scopeName s)]
+
+
+    getAuthorizationRequest :: Client -> Either Text (Maybe Text, ResponseType, [Scope], Maybe Text)
     getAuthorizationRequest client = do
+        let stateParam = maybeParam env "state"
+            st         = either (\_ -> Nothing) id stateParam
+            separator  = case getResponseType of
+                             Right Code -> '?'
+                             Right _    -> '#'
+                             Left  _    -> '?' -- TODO: Use client grant/response types
+            err e      = T.cons separator $ errorURL st e
+
+        -- All that was just to work out how to handle the error.
+        -- Now check the actual parameter values.
+        either (Left . err) return $ do
+            state          <- either (Left . InvalidRequest) return $ stateParam
+            responseType   <- getResponseType
+            checkResponseType client responseType
+            maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
+            nonce          <- either (Left . InvalidRequest) return $ maybeParam env "nonce"
+            requestedScope <- checkScope client $ fmap (map scopeFromName) maybeScope
+
+            return (state, responseType, requestedScope, nonce)
+
+    getResponseType :: Either AuthorizationError ResponseType
+    getResponseType = do
         rtParam        <- either (Left . InvalidRequest) return $ requireParam env "response_type"
         responseType   <- maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
-        checkResponseType client responseType
-        maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
-        nonce          <- either (Left . InvalidRequest) return $ maybeParam env "nonce"
-        requestedScope <- checkScope client $ fmap (map scopeFromName) maybeScope
-        case responseType of
-            Code  -> return (responseType, requestedScope, nonce)
-            Token -> Left UnsupportedResponseType -- "Implicit grant is not supported"
-            _     -> Left UnsupportedResponseType
+        return responseType
+
+    -- TODO: Create a type "CheckResponseType" and use it to allow configuration of
+    -- supported response types and build openid configuration
+    checkResponseType client rt =
+        let checkGrant gt = unless (gt `elem` authorizedGrantTypes client) $ Left UnauthorizedClient
+        in  case rt of
+                Code            -> checkGrant AuthorizationCode
+                Token           -> checkGrant Implicit
+                IdTokenResponse -> checkGrant Implicit
+                TokenIdToken    -> checkGrant Implicit
+                _               -> checkGrant AuthorizationCode >> checkGrant Implicit
 
     defaultRedirectURI client = head $ redirectURIs client
-
-    checkResponseType client rt = case rt of
-        Code -> unless (AuthorizationCode `elem` authorizedGrantTypes client) $ Left UnauthorizedClient
-        _    -> Left UnsupportedResponseType
 
     -- scopes <- validate scopes are allowed for client in question.
     -- Calculate intersection with user scopes
@@ -141,27 +184,10 @@ getClientAndRedirectURI getClient env = runEitherT $ do
                                         then right ()
                                         else left InvalidRedirectUri
 
-
-authzCodeResponseURL :: Text -> Maybe Text -> ByteString -> [Text] -> Text
-authzCodeResponseURL redirectURI state code scope = buildURL False redirectURI state params
+errorURL :: Maybe Text -> AuthorizationError -> Text
+errorURL state authzError = TE.decodeUtf8 qs
   where
-    params = ("code", code) : case scope of
-        [] -> []
-        s  -> [("scope", TE.encodeUtf8 $ T.intercalate " " s)]
-
-implicitResponseURL :: Text
-                    -> Maybe Text
-                    -> Maybe ByteString
-                    -> Maybe ByteString
-                    -> Text
-implicitResponseURL redirectURI state accessToken idToken = buildURL True redirectURI state params
-  where
-    params   = maybe atParams (\t -> ("id_token", t) : atParams) $ idToken
-    atParams = maybe [] (\t -> [("access_token", t), ("token_type", "bearer")]) $ accessToken
-
-errorURL :: Bool -> Text -> Maybe Text -> AuthorizationError -> Text
-errorURL useFragment redirectURI state authzError = buildURL useFragment redirectURI state params
-  where
+    qs = renderSimpleQuery False $ addStateParam state params
     params = ("error", e) : maybe [] (\d -> [("error_description", d)]) desc
     (e, desc) = case authzError of
         InvalidRequest d      -> ("invalid_request", Just $ TE.encodeUtf8 d)
@@ -172,12 +198,8 @@ errorURL useFragment redirectURI state authzError = buildURL useFragment redirec
         ServerError           -> ("server_error", Nothing)
         Unavailable           -> ("temporarily_unavailable", Nothing)
 
-buildURL :: Bool -> Text -> Maybe Text -> [SimpleQueryItem] -> Text
-buildURL useFragment redirectURI state params = T.concat [redirectURI, separator, qs]
-  where
-    separator = if useFragment then "#" else "?"
-    ps = maybe params (\s -> ("state", TE.encodeUtf8 s) : params) state
-    qs = TE.decodeUtf8 $ renderSimpleQuery False ps
+addStateParam :: Maybe Text -> [SimpleQueryItem] -> [SimpleQueryItem]
+addStateParam state ps = maybe ps (\s -> ("state", TE.encodeUtf8 s) : ps) state
 
 -- Create a random authorization code
 generateCode :: IO ByteString
