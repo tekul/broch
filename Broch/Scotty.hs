@@ -182,7 +182,7 @@ authorizationHandler csKey getClient createAuthorization getApproval createAcces
     response <- processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now
     case response of
         Left e    -> evilClientError e
-        Right url -> redirectFull url
+        Right url -> redirect $ L.fromStrict url
 
   where
     evilClientError err = status badRequest400 >> text (L.pack $ show err)
