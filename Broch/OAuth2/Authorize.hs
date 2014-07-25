@@ -63,7 +63,6 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
 
             responseUrl <- authorizationResponseURL client uri
             return . Right $ T.concat [redirectURI, responseUrl]
-
   where
     authorizationResponseURL client uri =
         case getAuthorizationRequest client of
@@ -74,34 +73,47 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                                           Code -> '?'
                                           _    -> '#'
                     codeResponse      = doCode client scope nonce uri
-                    tokenResponse     = doAccessToken client scope
+                    tokenResponse     = tokenParams =<< doAccessToken client scope
                     idTokenResponse   = doIdToken client nonce
 
                 responseParams <- case responseType of
-                    Code             -> liftM2 (:) codeResponse $ scopeParam scope
+                    Code             -> liftM2 (:) (codeParam =<< codeResponse) $ scopeParam scope
                     Token            -> tokenResponse
-                    IdTokenResponse  -> idTokenResponse
-                    CodeToken        -> liftM2 (:) codeResponse tokenResponse
-                    -- TODO: These need changes to the id_token
+                    IdTokenResponse  -> idTokenResponse Nothing Nothing
+                    CodeToken        -> liftM2 (:) (codeParam =<< codeResponse) tokenResponse
+                    -- The remaining hybrid responses need changes to the id_token
                     -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
-                    TokenIdToken     -> undefined
-                    CodeIdToken      -> undefined
-                    CodeTokenIdToken -> undefined
+                    TokenIdToken     -> do
+                        te@(t, _) <- doAccessToken client scope
+                        liftM2 (++) (tokenParams te) $ idTokenResponse Nothing (Just t)
+                    CodeIdToken      -> do
+                        code      <- codeResponse
+                        liftM2 (:) (codeParam code) $ idTokenResponse (Just code) Nothing
+                    CodeTokenIdToken -> do
+                        code      <- codeResponse
+                        te@(t, _) <- doAccessToken client scope
+                        liftM2 (:) (codeParam code) $ liftM2 (++) (tokenParams te)
+                            $ idTokenResponse (Just code) (Just t)
 
                 return $ T.cons separator $ TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
 
     doCode client scope nonce uri = do
         code <- genCode
         createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
-        return ("code", code)
+        return code
+
+    codeParam code = return ("code", code)
 
     doAccessToken client scope = do
         (t, _, ttl) <- createAccessToken (Just $ subjectId user) client Implicit scope now
         let expires = B.pack $ show (round ttl :: Int)
-        return [("access_token", t), ("token_type", "bearer"), ("expires_in", expires)]
+        return (t, expires)
 
-    doIdToken client nonce = do
-        t <- createIdToken (subjectId user) client nonce now
+    tokenParams (token, expires) =
+        return [("access_token", token), ("token_type", "bearer"), ("expires_in", expires)]
+
+    doIdToken client nonce code accessToken = do
+        t <- createIdToken (subjectId user) client nonce now code accessToken
         return [("id_token", t)]
 
     scopeParam scope = return $ case scope of

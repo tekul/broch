@@ -95,11 +95,13 @@ type CreateAccessToken m = Maybe SubjectId    -- ^ The end user (resource owner)
                         -> POSIXTime          -- ^ Current time
                         -> m (ByteString, Maybe ByteString, TokenTTL)
 
-type CreateIdToken m = SubjectId    -- ^ The authenticated user
-                    -> Client       -- ^ The client (audience)
-                    -> Maybe Text   -- ^ The client submitted nonce
-                    -> POSIXTime    -- ^ Current time
-                    -> m ByteString -- ^ The token (either a JWS or JWE depending onthe client)
+type CreateIdToken m = SubjectId        -- ^ The authenticated user
+                    -> Client           -- ^ The client (audience)
+                    -> Maybe Text       -- ^ The client submitted nonce
+                    -> POSIXTime        -- ^ Current time
+                    -> Maybe ByteString -- ^ Authorization code
+                    -> Maybe ByteString -- ^ Access token
+                    -> m ByteString     -- ^ The token (either a JWS or JWE depending onthe client)
 
 type DecodeRefreshToken m = Client
                          -> Text                  -- ^ The refresh_token parameter

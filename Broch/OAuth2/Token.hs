@@ -90,7 +90,7 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             let scp = authzScope authz
                 usr = authzSubject authz
             idt <- if OpenID `elem` scp
-                       then fmap Just $ lift $ createIdToken usr client (authzNonce authz) now
+                       then fmap Just $ lift $ createIdToken usr client (authzNonce authz) now Nothing Nothing
                        else return Nothing
             return (Just usr, idt, AuthorizationCode, scp)
 

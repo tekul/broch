@@ -136,7 +136,7 @@ createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
     token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ (map scopeName s))
 
 createIdToken :: (Monad m) => CreateIdToken m
-createIdToken _ _ _ _ = return "an_id_token"
+createIdToken _ _ _ _ _ _ = return "an_id_token"
 
 
 decodeRefreshToken _ "refreshtoken" = return $ Just catsGrant

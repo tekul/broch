@@ -93,7 +93,7 @@ testBroch issuer pool = do
             let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
             runDB $ BP.createClient client
             return client
-        createIdToken uid client nonce now = return $ createIdTokenJws (Jws.rsaEncode RS256 kPr) issuer (clientId client) nonce uid now
+        createIdToken uid client nonce now code accessToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nonce uid now code accessToken
 
 
     -- Create the cookie encryption key
