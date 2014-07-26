@@ -4,6 +4,7 @@ module Broch.Scotty where
 import           Blaze.ByteString.Builder (toLazyByteString)
 import           Control.Concurrent.STM
 import           Control.Monad.Reader
+import qualified Crypto.BCrypt as BCrypt
 import qualified Crypto.PubKey.RSA as RSA
 import           Data.Aeson hiding (json)
 import qualified Data.ByteString.Base64 as B64
@@ -20,7 +21,10 @@ import qualified Data.Text as T
 import           Data.Text.Read (decimal)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as LE
+import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
+import           Data.UUID (toString)
+import           Data.UUID.V4
 import           Database.Persist.Sql (runMigrationSilent, runSqlPersistMPool)
 import qualified Jose.Jws as Jws
 import           Jose.Jwk
@@ -43,6 +47,7 @@ import           Broch.OpenID.Registration
 import qualified Broch.Persist as BP
 import           Broch.Random
 import           Broch.Token
+import           Broch.Scim (ScimUser(..), Meta(..), createScimUser)
 
 testClients =
     [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True
@@ -50,6 +55,10 @@ testClients =
     , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False
     ]
 
+testUsers =
+    [ (createScimUser Nothing "cat") { scimPassword = Just "cat" }
+    , (createScimUser Nothing "dog") { scimPassword = Just "dog" }
+    ]
 
 newtype BrochState = BrochState { issuerUrl :: T.Text}
 
@@ -76,9 +85,14 @@ testBroch issuer pool = do
                             BP.createAuthorization code uid clnt now scp n uri
 
     let getAuthorization = liftIO . runDB . BP.getAuthorizationByCode
-    let authenticateResourceOwner username password
-            | username == password = return $ Just username
-            | otherwise            = return Nothing
+    let authenticateResourceOwner username password = do
+            u <- liftIO . runDB $ BP.getUserByUsername username
+            case u of
+                Nothing          -> return Nothing
+                Just (uid, hash) -> if BCrypt.validatePassword (TE.encodeUtf8 hash) (TE.encodeUtf8 password)
+                                        then return $ Just uid
+                                        else return Nothing
+
     let saveApproval a = runDB $ BP.createApproval a
     (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
@@ -94,7 +108,18 @@ testBroch issuer pool = do
             runDB $ BP.createClient client
             return client
         createIdToken uid client nonce now code accessToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nonce uid now code accessToken
+        hashPassword p = do
+            hash <- liftIO $ BCrypt.hashPasswordUsingPolicy BCrypt.fastBcryptHashingPolicy (TE.encodeUtf8 p)
+            maybe (error "Hash failed") (return . TE.decodeUtf8) hash
 
+        createUser scimData = do
+            now <- fmap Just $ liftIO getCurrentTime
+            uid <- fmap (T.pack . toString) $ liftIO $ nextRandom
+            password <- hashPassword =<< (maybe randomPassword return $ scimPassword scimData)
+            let meta = Meta now now Nothing Nothing
+            runDB $ BP.createUser uid password scimData { scimId = Just uid, scimMeta = Just meta }
+
+    mapM_ createUser testUsers
 
     -- Create the cookie encryption key
     -- TODO: abstract session data access
@@ -164,6 +189,33 @@ testBroch issuer pool = do
         get "/.well-known/openid-configuration" $ json $ toJSON config
 
         get "/.well-known/jwks" $ json $ toJSON $ keySet
+
+        -- SCIM API
+
+        post   "/Users" $ do
+            -- parse JSON request to SCIM user
+            -- store user
+            -- create meta and etag
+            -- re-read user and return
+            b <- body
+            case eitherDecode b of
+                Left err -> status badRequest400 >> text (L.pack err)
+                Right scimUser -> do
+                    -- TODO: Check data, username etc
+                    liftIO $ createUser scimUser
+
+        get    "/Users/:uid" undefined
+        put    "/Users/:uid" undefined
+        patch  "/Users/:uid" $ status notImplemented501
+        delete "/Users/:uid" undefined
+        post   "/Groups" undefined
+        get    "/Groups/:uid" undefined
+        put    "/Groups/:uid" undefined
+        patch  "/Groups/:uid" undefined
+        delete "/Groups/:uid" undefined
+
+  where
+    randomPassword = fmap (TE.decodeUtf8 . B64.encode) $ randomBytes 12
 
 
 redirectFull u = do

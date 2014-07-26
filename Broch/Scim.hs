@@ -1,7 +1,14 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 
-module Scim
-
+module Broch.Scim
+    ( Meta(..)
+    , Name(..)
+    , Address(..)
+    , Email(..)
+    , ScimUser(..)
+    , Phone(..)
+    , createScimUser
+    )
 where
 
 import Data.Aeson
@@ -17,10 +24,10 @@ type ScimId = Text
 type MT = Maybe Text
 
 data Meta = Meta
-    { created      :: !UTCTime
-    , lastModified :: !UTCTime
-    , location     :: !Text
-    , version      :: !Text
+    { created      :: !(Maybe UTCTime)
+    , lastModified :: !(Maybe UTCTime)
+    , location     :: !MT
+    , version      :: !MT
     } deriving (Show, Generic)
 
 instance FromJSON Meta
@@ -28,12 +35,12 @@ instance ToJSON Meta where
     toJSON = genericToJSON omitNothingOptions
 
 data Name = Name
-    { formatted    :: !MT
-    , familyName   :: !MT
-    , givenName    :: !MT
-    , middleName   :: !MT
-    , honorificPrefix :: !MT
-    , honorificSuffix :: !MT
+    { nameFormatted    :: !MT
+    , nameFamilyName   :: !MT
+    , nameGivenName    :: !MT
+    , nameMiddleName   :: !MT
+    , nameHonorificPrefix :: !MT
+    , nameHonorificSuffix :: !MT
     } deriving (Show, Generic)
 
 instance FromJSON Name
@@ -49,7 +56,7 @@ data Email = Email
 instance FromJSON Email where
     parseJSON = genericParseJSON emailOptions
 instance ToJSON Email where
-    toJSON = genericToJSON $ emailOptions
+    toJSON = genericToJSON emailOptions
 
 emailOptions :: Options
 emailOptions = prefixOptions "email"
@@ -92,35 +99,64 @@ data IM = IM
 instance FromJSON IM where
     parseJSON = genericParseJSON imOptions
 instance ToJSON IM where
-    toJSON = genericToJSON $ imOptions
+    toJSON = genericToJSON imOptions
 
 imOptions :: Options
 imOptions = prefixOptions "im"
 
-data User = User
-    { id           :: !ScimId
-    , schemas      :: !(Maybe [Text])
-    , meta         :: !(Maybe Meta)
-    , userName     :: !Text
-    , name         :: Maybe Name
-    , displayName  :: !MT
-    , nickName     :: !MT
-    , profileUrl   :: !MT
-    , title        :: !MT
-    , userType     :: !MT
-    , preferredLanguage :: !MT
-    , locale       :: !MT
-    , timezone     :: !MT
-    , active       :: !(Maybe Bool)
-    , emails       :: !(Maybe [Email])
-    , addresses    :: !(Maybe [Address])
-    , phoneNumbers :: !(Maybe [Phone])
-    , ims          :: !(Maybe [IM])
+data ScimUser = ScimUser
+    { scimId           :: !(Maybe ScimId)
+    , scimUserName     :: !Text
+    , scimSchemas      :: !(Maybe [Text])
+    , scimMeta         :: !(Maybe Meta)
+    , scimName         :: Maybe Name
+    , scimDisplayName  :: !MT
+    , scimNickName     :: !MT
+    , scimProfileUrl   :: !MT
+    , scimTitle        :: !MT
+    , scimUserType     :: !MT
+    , scimPreferredLanguage :: !MT
+    , scimLocale       :: !MT
+    , scimTimezone     :: !MT
+    , scimActive       :: !(Maybe Bool)
+    , scimEmails       :: !(Maybe [Email])
+    , scimAddresses    :: !(Maybe [Address])
+    , scimPhoneNumbers :: !(Maybe [Phone])
+    , scimIms          :: !(Maybe [IM])
+    , scimPassword     :: !MT
     } deriving (Show, Generic)
 
-instance FromJSON User
-instance ToJSON User where
-    toJSON = genericToJSON omitNothingOptions
+createScimUser :: Maybe ScimId -> Text -> ScimUser
+createScimUser uid username = ScimUser
+    { scimId           = uid
+    , scimUserName     = username
+    , scimSchemas      = Nothing
+    , scimMeta         = Nothing
+    , scimName         = Nothing
+    , scimDisplayName  = Nothing
+    , scimNickName     = Nothing
+    , scimProfileUrl   = Nothing
+    , scimTitle        = Nothing
+    , scimUserType     = Nothing
+    , scimPreferredLanguage = Nothing
+    , scimLocale       = Nothing
+    , scimTimezone     = Nothing
+    , scimActive       = Nothing
+    , scimEmails       = Nothing
+    , scimAddresses    = Nothing
+    , scimPhoneNumbers = Nothing
+    , scimIms          = Nothing
+    , scimPassword     = Nothing
+    }
+
+instance FromJSON ScimUser where
+    parseJSON = genericParseJSON userOptions
+
+instance ToJSON ScimUser where
+    toJSON u = genericToJSON userOptions u { scimPassword = Nothing }
+
+userOptions :: Options
+userOptions = prefixOptions "scim"
 
 omitNothingOptions :: Options
 omitNothingOptions = defaultOptions { omitNothingFields = True }

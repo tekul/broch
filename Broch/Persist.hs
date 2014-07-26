@@ -10,19 +10,26 @@ module Broch.Persist
     , getClientById
     , createApproval
     , getApproval
+    , createUser
+    , getUserById
+    , getUserByUsername
     )
 where
 
-import Control.Monad (void)
-import Data.Maybe (fromJust)
-import Database.Persist (insert, getBy, delete, deleteBy, Entity(..))
-import Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
+import           Control.Monad (void)
+import           Data.Aeson (encode, decodeStrict)
+import           Data.ByteString.Lazy (toStrict)
+import           Data.Maybe (fromJust)
+import           Database.Persist (PersistUnique, PersistStore, insert, getBy, delete, deleteBy, Entity(..))
+import           Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
 
-import Data.Text (Text)
-import Data.Time.Clock.POSIX
-import Data.Time.Clock
+import           Data.Text (Text)
+import qualified Data.Text.Encoding as TE
+import           Data.Time.Clock.POSIX
+import           Data.Time.Clock
 
 import qualified Broch.Model as M
+import           Broch.Scim
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 AuthCode sql=authz_code
@@ -55,8 +62,16 @@ Client sql=oauth2_client
   autoapprove    Bool
   UniqueClientId clientId
   deriving Show
-|]
 
+User
+  uid            Text
+  username       Text
+  password       Text
+  scim           Text
+  UniqueUserId   uid
+  UniqueUserName username
+  deriving Show
+|]
 
 createAuthorization code userId client now scope nonce mURI =
     void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI
@@ -95,3 +110,31 @@ getClientById cid = do
         Just (Entity key (Client _ ms gs uris atv rtv scps appr)) -> do
             let grants = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
             return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr
+
+createUser :: (PersistStore m, Functor m)
+           => Text
+           -> Text
+           -> ScimUser
+           -> m ()
+createUser uid pass scimUser =
+    void $ insert $ User uid (scimUserName scimUser) pass $ TE.decodeUtf8 $ toStrict $ encode scimUser
+
+getUserById :: PersistUnique m
+            => M.SubjectId
+            -> m (Maybe ScimUser)
+getUserById uid = do
+    record <- getBy $ UniqueUserId uid
+    case record of
+        Nothing -> return Nothing
+        Just (Entity _ (User _ _ _ scim)) -> return $ decodeStrict $ TE.encodeUtf8 scim
+
+getUserByUsername :: PersistUnique m
+                  => Text
+                  -> m (Maybe (M.SubjectId, Text))
+getUserByUsername name = do
+    record <- getBy $ UniqueUserName name
+    case record of
+        Nothing -> return Nothing
+        Just (Entity _ (User uid _ password _)) -> return $ Just (uid, password)
+
+
