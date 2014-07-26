@@ -2,4 +2,6 @@
 dist/
 *.aes
 *.db3
+*.key
+*.crt
 tags

@@ -1,15 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import Database.Persist.Sqlite (createSqlitePool)
+import Prelude hiding (catch)
+
+import Control.Exception
+import Database.Persist.Sqlite (withSqlitePool)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
-import Network.Wai.Handler.Warp (run)
+import Network.Wai.Handler.Warp
+import Network.Wai.Handler.WarpTLS
+import Network.TLS
+import System.Directory
+import System.IO.Error hiding (catch)
 
 import Broch.Scotty
 
 main :: IO ()
 main = do
-    -- Back end storage
-    pool <- createSqlitePool "broch.db3" 1
-    waiApp <- testBroch "http://localhost:3000" pool
-    run 3000 $ logStdoutDev waiApp
+    removeFile "broch.db3" `catch` eek
+
+    withSqlitePool "broch.db3" 2 $ \pool -> do
+        waiApp <- testBroch "http://broch.io:3000" pool
+        let tlsConfig = tlsSettings "broch.crt" "broch.key"
+        let config    = defaultSettings
+        -- runTLS tlsConfig config $ logStdoutDev waiApp
+        run 3000 $ logStdoutDev waiApp
+  where
+    eek e
+      | isDoesNotExistError e = return ()
+      | otherwise             = throwIO e
 
