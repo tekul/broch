@@ -12,9 +12,11 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 import           Data.Int (Int64)
 import           Data.List ((\\))
+import           Data.List (intersect)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import           Data.Maybe (fromJust)
+import           Data.String (fromString)
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as L
 import qualified Data.Text as T
@@ -44,6 +46,7 @@ import           Broch.OAuth2.Token
 import           Broch.OpenID.Discovery
 import           Broch.OpenID.IdToken
 import           Broch.OpenID.Registration
+import           Broch.OpenID.UserInfo
 import qualified Broch.Persist as BP
 import           Broch.Random
 import           Broch.Token
@@ -73,6 +76,28 @@ gets f = ask >>= liftIO . readTVarIO >>= return . f
 
 modify :: (BrochState -> BrochState) -> BrochM ()
 modify f = ask >>= liftIO . atomically . flip modifyTVar' f
+
+
+data Except = WWWAuthenticate Text
+            | InvalidToken Text
+            | InsufficientScope [Scope]
+            | Forbidden
+            | StringEx String
+              deriving (Show, Eq)
+
+instance ScottyError Except where
+    stringError = StringEx
+    showError   = fromString . show
+
+handleEx :: Monad m => Except -> ActionT Except m ()
+handleEx (WWWAuthenticate hdr) = status unauthorized401 >> setHeader "WWW-Authenticate" hdr
+handleEx (InvalidToken msg)    = do
+    status unauthorized401
+    setHeader "WWW-Authenticate" $ L.concat ["Bearer, error=\"invalid_token\", error_description=\"", msg, "\""]
+handleEx (InsufficientScope s) = do
+    status forbidden403
+    setHeader "WWW-Authenticate" $ L.concat ["Bearer, error=\"insufficient_scope\", scope=\"", L.fromStrict $ formatScope s, "\""]
+
 
 testBroch issuer pool = do
     liftIO $ runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
@@ -119,6 +144,17 @@ testBroch issuer pool = do
             let meta = Meta now now Nothing Nothing
             runDB $ BP.createUser uid password scimData { scimId = Just uid, scimMeta = Just meta }
 
+        getUser = liftIO . runDB . BP.getUserById
+
+        userInfoHandler = withBearerToken (decodeJwtAccessToken kPr) [OpenID] $ \g -> do
+            debug $ g
+            scimUser <- getUser $ fromJust $ granterId g
+            debug scimUser
+            -- Convert from SCIM... yuk
+            -- Todo: Filter data based on scope
+            json $ scimUserToUserInfo $ fromJust scimUser
+
+
     mapM_ createUser testUsers
 
     -- Create the cookie encryption key
@@ -131,7 +167,10 @@ testBroch issuer pool = do
         runActionToIO = runM
 
     scottyAppT runM runActionToIO $ do
-        get "/" $ redirectFull "/home" :: ScottyT Text BrochM ()
+
+        defaultHandler handleEx
+
+        get "/" $ redirectFull "/home"
 
         get "/home" $ text "Hello, I'm the home page."
 
@@ -171,6 +210,9 @@ testBroch issuer pool = do
             clearCachedLocation
             -- Redirect to authorization doesn't seem to work with oictests
             redirectFull $ L.toStrict l
+
+        get  "/connect/userinfo" $ userInfoHandler
+        post "/connect/userinfo" $ userInfoHandler
 
         post "/connect/register" $ do
             b <- body
@@ -250,7 +292,7 @@ authorizationHandler csKey getClient createAuthorization getApproval createAcces
             Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
             -- Nothing exists: Redirect to approval handler with scopes and client id
             Nothing -> do
-                let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ T.intercalate " " (map scopeName requestedScope))]
+                let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ formatScope requestedScope)]
                 cacheLocation csKey
                 redirectFull $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
@@ -266,6 +308,8 @@ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessTo
                 Left bad -> status badRequest400 >> json (toJSON bad)
                 Right tr -> json $ toJSON tr
 
+formatScope :: [Scope] -> T.Text
+formatScope s = T.intercalate " " (map scopeName s)
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . putStrLn . show
@@ -349,6 +393,24 @@ getCookie name = do
 toMap :: [(Text, Text)] -> Map.Map T.Text [T.Text]
 toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [(L.toStrict y)])
 
+withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHeader $ \h -> do
+    case bearerToken h of
+        Nothing -> unauthorized
+        Just t  -> case decodeToken t of
+            Just g@(AccessGrant _ _ _ scp (TokenTime ex)) -> do
+                -- Check expiry and scope
+                now <- liftIO getPOSIXTime
+                unless (ex > now) $ raise $ InvalidToken "Token has expired"
+                unless (requiredScope `intersect` scp == requiredScope) $ raise $ InsufficientScope requiredScope
+                f g
+
+            Nothing -> unauthorized
+  where
+    unauthorized = status unauthorized401 >> setHeader "WWW-Authenticate" wwwAuthHeader
+    wwwAuthHeader = "Bearer"
+    bearerToken h = case B.split ' ' h of
+                       ["Bearer", t] -> Just t
+                       _             -> Nothing
 basicAuthClient getClient = do
     r <- request
     case basicAuthCredentials r of
@@ -379,4 +441,11 @@ basicAuthCredentials r = do
                  Right (u, p) -> if T.length p == 0
                                  then Nothing
                                  else Just (u, T.tail p)
+
+withAuthorizationHeader authResponseHdr f = do
+    r <- request
+    let h = lookup hAuthorization $ W.requestHeaders r
+    case h of Nothing -> status unauthorized401 >> setHeader "WWW-Authenticate" authResponseHdr
+              Just a  -> f a
+
 

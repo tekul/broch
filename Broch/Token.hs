@@ -2,6 +2,7 @@
 
 module Broch.Token
   ( createJwtAccessToken
+  , decodeJwtAccessToken
   , decodeJwtRefreshToken
   )
 where
@@ -68,15 +69,25 @@ createJwtAccessToken pubKey user client grantType scopes now = do
                         , aud = ["refresh"]
                         }
 
-decodeJwtRefreshToken :: RSA.PrivateKey -> ByteString -> Maybe AccessGrant
-decodeJwtRefreshToken privKey jwt = case claims of
-                                        Right (Just c)  -> Just $ claimsToAccessGrant c
-                                        _               -> Nothing
-                                    where
-                                        claims = fmap decodeClaims $ Jwe.rsaDecode privKey jwt
 
-                                        decodeClaims :: (JweHeader, ByteString) -> Maybe Claims
-                                        decodeClaims (_, t) = decode $ fromStrict t
+decodeJwtRefreshToken :: RSA.PrivateKey -> ByteString -> Maybe AccessGrant
+decodeJwtRefreshToken = decodeJwtToken
+
+decodeJwtAccessToken :: RSA.PrivateKey
+                     -> ByteString
+                     -> Maybe AccessGrant
+decodeJwtAccessToken = decodeJwtToken
+
+decodeJwtToken :: RSA.PrivateKey -> ByteString -> Maybe AccessGrant
+decodeJwtToken privKey jwt = case claims of
+    Right (Just c)  -> Just $ claimsToAccessGrant c
+    _               -> Nothing
+  where
+    claims = fmap decodeClaims $ Jwe.rsaDecode privKey jwt
+
+    decodeClaims :: (JweHeader, ByteString) -> Maybe Claims
+    decodeClaims (_, t) = decode $ fromStrict t
+
 
 claimsToAccessGrant :: Claims -> AccessGrant
 claimsToAccessGrant claims = AccessGrant
