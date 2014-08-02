@@ -73,9 +73,21 @@ User
   deriving Show
 |]
 
+createAuthorization :: (PersistStore m, Functor m)
+                    => Text
+                    -> Text
+                    -> M.Client
+                    -> POSIXTime
+                    -> [M.Scope]
+                    -> Maybe Text
+                    -> Maybe Text
+                    -> m ()
 createAuthorization code userId client now scope nonce mURI =
     void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI
 
+getAuthorizationByCode :: (PersistUnique m, Functor m)
+                       => Text
+                       -> m (Maybe M.Authorization)
 getAuthorizationByCode code = do
     record <- getBy $ UniqueCode code
     case record of
@@ -84,10 +96,17 @@ getAuthorizationByCode code = do
             delete key
             return $ Just $ M.Authorization uid client (M.TokenTime $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri
 
+createApproval :: (PersistStore m, Functor m)
+               => M.Approval
+               -> m ()
 createApproval (M.Approval uid clientId scope (M.TokenTime expires)) =
     void $ insert $ Approval uid clientId (map M.scopeName scope) (posixSecondsToUTCTime expires)
 
--- getApproval :: PersistUnique m => Text -> Text -> POSIXTime -> m (Maybe M.Approval)
+getApproval :: PersistUnique m
+            => Text
+            -> Text
+            -> POSIXTime
+            -> m (Maybe M.Approval)
 getApproval uid cid now = do
     record <- getBy $ UniqueApproval uid cid
     case record of
@@ -98,16 +117,26 @@ getApproval uid cid now = do
                 then delete key >> return Nothing
                 else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (M.TokenTime posixExpiry)
 
+deleteApproval :: PersistUnique m
+               => Text
+               -> Text
+               -> m ()
 deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 
+createClient :: (PersistStore m, Functor m)
+             => M.Client
+             -> m ()
 createClient (M.Client cid ms gs uris atv rtv scps appr) =
     void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr
 
+getClientById :: PersistUnique m
+              => Text
+              -> m (Maybe M.Client)
 getClientById cid = do
     record <- getBy $ UniqueClientId cid
     case record of
         Nothing -> return Nothing
-        Just (Entity key (Client _ ms gs uris atv rtv scps appr)) -> do
+        Just (Entity _ (Client _ ms gs uris atv rtv scps appr)) -> do
             let grants = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
             return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr
 

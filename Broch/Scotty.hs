@@ -27,8 +27,7 @@ import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
 import           Data.UUID (toString)
 import           Data.UUID.V4
-import           Database.Persist.Sql (runMigrationSilent, runSqlPersistMPool)
-import qualified Jose.Jws as Jws
+import           Database.Persist.Sql (ConnectionPool, runMigrationSilent, runSqlPersistMPool)
 import           Jose.Jwk
 import           Jose.Jwa
 import           Network.HTTP.Types
@@ -43,7 +42,7 @@ import           Web.Scotty.Trans
 import           Broch.Model
 import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.Token
-import           Broch.OpenID.Discovery
+import           Broch.OpenID.Discovery (defaultOpenIDConfiguration)
 import           Broch.OpenID.IdToken
 import           Broch.OpenID.Registration
 import           Broch.OpenID.UserInfo
@@ -52,12 +51,14 @@ import           Broch.Random
 import           Broch.Token
 import           Broch.Scim (ScimUser(..), Meta(..), createScimUser)
 
+testClients :: [Client]
 testClients =
     [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True
     , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True
     , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False
     ]
 
+testUsers :: [ScimUser]
 testUsers =
     [ (createScimUser Nothing "cat") { scimPassword = Just "cat" }
     , (createScimUser Nothing "dog") { scimPassword = Just "dog" }
@@ -81,7 +82,7 @@ modify f = ask >>= liftIO . atomically . flip modifyTVar' f
 data Except = WWWAuthenticate Text
             | InvalidToken Text
             | InsufficientScope [Scope]
-            | Forbidden
+--            | Forbidden
             | StringEx String
               deriving (Show, Eq)
 
@@ -97,11 +98,12 @@ handleEx (InvalidToken msg)    = do
 handleEx (InsufficientScope s) = do
     status forbidden403
     setHeader "WWW-Authenticate" $ L.concat ["Bearer, error=\"insufficient_scope\", scope=\"", L.fromStrict $ formatScope s, "\""]
+handleEx _ = status internalServerError500 >> text "Whoops! Something went wrong!"
 
-
+testBroch :: T.Text -> ConnectionPool -> IO W.Application
 testBroch issuer pool = do
-    liftIO $ runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
-    liftIO $ mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
+    _ <- runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
+    mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
     -- Create everything we need for the oauth endpoints
     -- First we need an RSA key for signing tokens
     let runDB = flip runSqlPersistMPool pool
@@ -130,9 +132,11 @@ testBroch issuer pool = do
             cid <- liftIO generateCode
             sec <- liftIO generateCode
             let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
-            runDB $ BP.createClient client
+            runDB $ BP.createClient $ client
             return client
-        createIdToken uid client nonce now code accessToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nonce uid now code accessToken
+
+        createIdToken uid client nons now code aToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nons uid now code aToken
+
         hashPassword p = do
             hash <- liftIO $ BCrypt.hashPasswordUsingPolicy BCrypt.fastBcryptHashingPolicy (TE.encodeUtf8 p)
             maybe (error "Hash failed") (return . TE.decodeUtf8) hash
@@ -192,7 +196,7 @@ testBroch issuer pool = do
                     redirectFull $ L.toStrict l
 
         get "/approval" $ do
-            user   <- getAuthId csKey
+            _      <- getAuthId csKey
             now    <- liftIO getPOSIXTime
             Just client <- param "client_id" >>= getClient
             scope  <- param "scope" >>= return . (L.splitOn " ")
@@ -226,6 +230,7 @@ testBroch issuer pool = do
                             -- Cheat here. Add the extra fields to the
                             -- original JSON object
                             json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
+                Right _            -> status badRequest400 >> text "Registration data must be a JSON Object"
         get "/logout" $ logout
 
         get "/.well-known/openid-configuration" $ json $ toJSON config
@@ -260,53 +265,60 @@ testBroch issuer pool = do
     randomPassword = fmap (TE.decodeUtf8 . B64.encode) $ randomBytes 12
 
 
-redirectFull u = do
-    baseUrl <- brochM $ gets issuerUrl
-    let location = L.fromStrict $ T.concat [baseUrl, u]
-    liftIO $ putStrLn $ "Redirecting to: " ++ show location
-    redirect location
+    redirectFull :: T.Text -> ActionT Except BrochM b
+    redirectFull u = do
+        baseUrl <- brochM $ gets issuerUrl
+        let url = L.fromStrict $ T.concat [baseUrl, u]
+        liftIO $ putStrLn $ "Redirecting to: " ++ show url
+        redirect url
 
-authorizationHandler csKey getClient createAuthorization getApproval createAccessToken createIdToken = do
-    -- request >>= debug . W.rawQueryString
+    authorizationHandler csKey getClient createAuthorization getApproval createAccessToken createIdToken = do
+        -- request >>= debug . W.rawQueryString
 
-    user <- getAuthId csKey
-    env  <- fmap toMap params
-    now  <- liftIO getPOSIXTime
+        user <- getAuthId csKey
+        env  <- fmap toMap params
+        now  <- liftIO getPOSIXTime
 
-    response <- processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now
-    case response of
-        Left e    -> evilClientError e
-        Right url -> redirect $ L.fromStrict url
+        response <- processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now
+        case response of
+            Left e    -> evilClientError e
+            Right url -> redirect $ L.fromStrict url
 
-  where
-    evilClientError err = status badRequest400 >> text (L.pack $ show err)
+      where
+        evilClientError err = status badRequest400 >> text (L.pack $ show err)
 
-    fakeApproval _ _ requestedScope _ = return requestedScope
+        fakeApproval _ _ requestedScope _ = return requestedScope
 
-    resourceOwnerApproval uid client requestedScope now = do
-        -- Try to load a previous approval
-        maybeApproval <- liftIO $ getApproval uid client now
-        case maybeApproval of
-            -- TODO: Check scope overlap and allow asking for extra scope
-            -- not previously granted
-            Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
-            -- Nothing exists: Redirect to approval handler with scopes and client id
-            Nothing -> do
-                let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ formatScope requestedScope)]
-                cacheLocation csKey
-                redirectFull $ TE.decodeUtf8 $ B.concat ["/approval", query]
+        resourceOwnerApproval uid client requestedScope now = do
+            -- Try to load a previous approval
+            maybeApproval <- liftIO $ getApproval uid client now
+            case maybeApproval of
+                -- TODO: Check scope overlap and allow asking for extra scope
+                -- not previously granted
+                Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
+                -- Nothing exists: Redirect to approval handler with scopes and client id
+                Nothing -> do
+                    let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ formatScope requestedScope)]
+                    cacheLocation csKey
+                    redirectFull $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
-tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = do
-    client <- basicAuthClient getClient
-    case client of
-        Left (st, err) -> status st >> text err
-        Right c        -> do
-            env  <- fmap toMap params
-            now  <- liftIO getPOSIXTime
-            resp <- processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
-            case resp of
-                Left bad -> status badRequest400 >> json (toJSON bad)
-                Right tr -> json $ toJSON tr
+    tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = do
+        client <- basicAuthClient getClient
+        case client of
+            Left (st, err) -> status st >> text err
+            Right c        -> do
+                env  <- fmap toMap params
+                now  <- liftIO getPOSIXTime
+                resp <- processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+                case resp of
+                    Left bad -> status badRequest400 >> json (toJSON bad)
+                    Right tr -> json $ toJSON tr
+
+    getAuthId key = do
+        uid <- getEncryptedCookie key "bsid"
+        case uid of
+            Just u  -> return (TE.decodeUtf8 u)
+            Nothing -> cacheLocation key >> redirectFull "/login"
 
 formatScope :: [Scope] -> T.Text
 formatScope s = T.intercalate " " (map scopeName s)
@@ -314,6 +326,7 @@ formatScope s = T.intercalate " " (map scopeName s)
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . putStrLn . show
 
+loginPage :: H.Html
 loginPage = H.html $ do
     H.head $ do
       H.title "Login."
@@ -323,7 +336,7 @@ loginPage = H.html $ do
             H.input H.! type_ "password" H.! name "password"
             H.input H.! type_ "submit" H.! value "Login"
 
---approvalPage :: Client -> [Text] -> Int64 -> H.Html
+approvalPage :: Client -> [Text] -> Int64 -> H.Html
 approvalPage client scopes now = H.docTypeHtml $ H.html $ do
     H.head $ do
       H.title "Approvals"
@@ -349,20 +362,18 @@ approvalPage client scopes now = H.docTypeHtml $ H.html $ do
     oneMonth = now + 30*aDay
 
 
+logout :: ActionT Except BrochM ()
 logout = clearCookie "bsid"
 
-getAuthId key = do
-    uid <- getEncryptedCookie key "bsid"
-    case uid of
-        Just u  -> return (TE.decodeUtf8 u)
-        Nothing -> cacheLocation key >> redirectFull "/login"
-
+clearCachedLocation :: ActionT Except BrochM ()
 clearCachedLocation = clearCookie "loc"
 
+cacheLocation :: CS.Key -> ActionT Except BrochM ()
 cacheLocation key = do
     r <- request
     setEncryptedCookie key "loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
 
+getCachedLocation :: CS.Key -> L.Text -> ActionT Except BrochM L.Text
 getCachedLocation key defaultUrl = getEncryptedCookie key "loc" >>=
                                       return . (maybe defaultUrl (L.fromStrict . TE.decodeUtf8))
 
@@ -373,26 +384,36 @@ makeCookie n v = def { setCookieName = n, setCookieValue = v, setCookieHttpOnly 
 renderSetCookie' :: SetCookie -> Text
 renderSetCookie' = LE.decodeUtf8 . toLazyByteString . renderSetCookie
 
+getEncryptedCookie :: CS.Key -> B.ByteString -> ActionT Except BrochM (Maybe B.ByteString)
 getEncryptedCookie key n = getCookie n >>= return . join .fmap (CS.decrypt key)
 
+setEncryptedCookie :: CS.Key -> B.ByteString -> B.ByteString -> ActionT Except BrochM ()
 setEncryptedCookie key n v = do
     v' <- liftIO $ CS.encryptIO key v
     setCookie n v'
 
+setCookie :: B.ByteString -> B.ByteString -> ActionT Except BrochM ()
 setCookie n v = setHeader "Set-Cookie" $ renderSetCookie' $ makeCookie n v
 
+clearCookie :: B.ByteString -> ActionT Except BrochM ()
 clearCookie n = setHeader "Set-Cookie" $ renderSetCookie' $ (makeCookie n "") { setCookieMaxAge = Just 0 }
 
-getCookie name = do
+getCookie :: B.ByteString -> ActionT Except BrochM (Maybe B.ByteString)
+getCookie n = do
     cookies <- fmap (fmap (parseCookies . BL.toStrict . LE.encodeUtf8)) $ header "Cookie"
     case cookies of
         Nothing -> return Nothing
-        Just cs -> return $ lookup name cs
-
+        Just cs -> return $ lookup n cs
 
 toMap :: [(Text, Text)] -> Map.Map T.Text [T.Text]
 toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [(L.toStrict y)])
 
+withBearerToken :: MonadIO m
+                => (B.ByteString -> Maybe AccessGrant)
+                -> [Scope]
+                -> (AccessGrant
+                -> ActionT Except m ())
+                -> ActionT Except m ()
 withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHeader $ \h -> do
     case bearerToken h of
         Nothing -> unauthorized
@@ -411,6 +432,11 @@ withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHea
     bearerToken h = case B.split ' ' h of
                        ["Bearer", t] -> Just t
                        _             -> Nothing
+
+
+basicAuthClient :: (ScottyError e, Monad m)
+                => (T.Text -> ActionT e m (Maybe Client))
+                -> ActionT e m (Either (Status, L.Text) Client)
 basicAuthClient getClient = do
     r <- request
     case basicAuthCredentials r of
@@ -419,7 +445,7 @@ basicAuthClient getClient = do
             client <- getClient cid
             return $ maybe (Left (forbidden403, "Authentication failed")) Right $ client >>= validateSecret secret
 
--- TODO: Use Byteable comparison
+-- TODO: Use hashed secrets
 validateSecret :: T.Text -> Client -> Maybe Client
 validateSecret secret client = clientSecret client >>= \s ->
                                   if secret == s
@@ -442,6 +468,11 @@ basicAuthCredentials r = do
                                  then Nothing
                                  else Just (u, T.tail p)
 
+
+withAuthorizationHeader :: (ScottyError e, Monad m)
+                        => L.Text
+                        -> (B.ByteString -> ActionT e m ())
+                        -> ActionT e m ()
 withAuthorizationHeader authResponseHdr f = do
     r <- request
     let h = lookup hAuthorization $ W.requestHeaders r
