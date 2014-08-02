@@ -11,7 +11,6 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 import           Data.Int (Int64)
-import           Data.List ((\\))
 import           Data.List (intersect)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
@@ -295,7 +294,7 @@ testBroch issuer pool = do
             case maybeApproval of
                 -- TODO: Check scope overlap and allow asking for extra scope
                 -- not previously granted
-                Just (Approval _ _ scope _) -> return (scope \\ requestedScope)
+                Just (Approval _ _ scope _) -> return $ scope `intersect` requestedScope
                 -- Nothing exists: Redirect to approval handler with scopes and client id
                 Nothing -> do
                     let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ formatScope requestedScope)]

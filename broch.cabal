@@ -29,6 +29,7 @@ Library
                     , Broch.OpenID.Discovery
                     , Broch.OpenID.IdToken
                     , Broch.OpenID.Registration
+                    , Broch.OpenID.UserInfo
                     , Broch.Persist
                     , Broch.Scotty
   Other-Modules:      Broch.Scim
