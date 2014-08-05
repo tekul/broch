@@ -6,6 +6,7 @@ module Broch.OpenID.UserInfo
     )
 where
 
+import           Control.Applicative ((<$>))
 import           Data.Aeson
 import           Data.Aeson.Types
 import           Data.Maybe (fromJust)
@@ -45,9 +46,9 @@ scimUserToUserInfo scimUser = UserInfo
   where
     m  = scimMeta scimUser
     sn = scimName scimUser
-    em = fmap (emailValue . head) $ scimEmails    scimUser
-    ad = fmap head $ scimAddresses scimUser
-    ph = fmap (phoneValue . head) $ scimPhoneNumbers scimUser
+    em = (emailValue . head) <$> scimEmails scimUser
+    ad = head                <$> scimAddresses scimUser
+    ph = (phoneValue . head) <$> scimPhoneNumbers scimUser
 
     scimAddressToAddress scimAddr = AddressClaims
         { formatted      = addrFormatted scimAddr

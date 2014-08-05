@@ -5,6 +5,7 @@ module WaiTest where
 
 import qualified Blaze.ByteString.Builder as Builder
 import Control.Arrow (second)
+import Control.Monad (liftM)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
 import Data.ByteString (ByteString)
@@ -55,17 +56,17 @@ getP :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
 getP url params = request "" $ mkRequest "GET" $ B.concat [strippedUrl, H.renderQuery True $ toQuery params]
   where
     strippedUrl = if B.isPrefixOf "http" url
-                      then B.dropWhile ((/=) '/') $ B.drop 8 url
+                      then B.dropWhile ('/' /=) $ B.drop 8 url
                       else url
 
 post :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
 post url params = let content = H.renderQuery False $ toQuery params
                   in request content $ addHeader ("Content-Type", "application/x-www-form-urlencoded") $ mkRequest "POST" url
 
-dumpResponse = withResponse $ \r -> liftIO $ putStrLn $ show r
+dumpResponse = withResponse $ liftIO . print
 
 statusIs expected = withResponse $ \SResponse { simpleStatus = s } ->
-    liftIO $ HUnit.assertBool ("Expected status " ++ show expected ++ " but was " ++ (show $ H.statusCode s)) (expected == H.statusCode s)
+    liftIO $ HUnit.assertBool ("Expected status " ++ show expected ++ " but was " ++ show (H.statusCode s)) (expected == H.statusCode s)
 
 failure msg = liftIO $ HUnit.assertFailure msg
 
@@ -93,7 +94,7 @@ getLocationQuery = do
 
 getLocationURI :: WaiTest URI
 getLocationURI = do
-    l <- getLocationHeader >>= return . B.unpack
+    l <- liftM B.unpack getLocationHeader
     case parseURIReference l of
         Nothing -> fail $ "Invalid redirect URI: " ++ l
         Just r  -> return r
@@ -138,18 +139,15 @@ request content req = do
   where
     addAuthz Nothing  r = r
     addAuthz (Just a) r = addHeader ("Authorization", a) r
-    addContentLength  r = addHeader ("Content-Length", B.pack $ show $ B.length content) r
+    addContentLength    = addHeader ("Content-Length", B.pack $ show $ B.length content)
     addCookies cookies r@Request { rawPathInfo = path } = addHeader ("Cookie", cookieHeader) r
       where
-        cookieHeader = Builder.toByteString . C.renderCookies $ do
-            c <- map snd $ M.toList cookies
-            if isValidPath path c
-                then [(C.setCookieName c, C.setCookieValue c)]
-                else []
+        cookieHeader = Builder.toByteString . C.renderCookies $
+            [(C.setCookieName c, C.setCookieValue c) | c <- map snd $ M.toList cookies, isValidPath path c]
 
-    notExpired t c = maybe True (\ex -> ex < t) $ C.setCookieExpires c
+    notExpired t c = maybe True (< t) $ C.setCookieExpires c
 
-    isValidPath p c = maybe True (\x -> x `B.isPrefixOf` p) $ C.setCookiePath c
+    isValidPath p c = maybe True (`B.isPrefixOf` p) $ C.setCookiePath c
 
 addHeader hdr r@Request { requestHeaders = hs } = r { requestHeaders = hdr : hs }
 

@@ -41,7 +41,7 @@ maybeParam env name = case Map.lookup name env of
                           Just [""]    -> Left $ prefixMsg "Empty "
                           Just [value] -> Right $ Just value
                           Just (_:_)   -> Left $ prefixMsg "Duplicate "
-                          Nothing      -> Right Nothing
+                          _            -> Right Nothing
                         where
                           prefixMsg m = T.append m name
 

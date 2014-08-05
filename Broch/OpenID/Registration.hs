@@ -4,6 +4,7 @@ module Broch.OpenID.Registration where
 
 import           Control.Applicative (pure)
 import           Data.Aeson
+import           Data.Maybe (fromMaybe)
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           Jose.Jwa
@@ -63,9 +64,7 @@ makeClient :: ClientId -> Text -> ClientMetaData -> Client
 makeClient cid csec md = Client
     { clientId = cid
     , clientSecret = Just csec
-    , authorizedGrantTypes = case grant_types md of
-                                Nothing -> [AuthorizationCode]
-                                Just g  -> g
+    , authorizedGrantTypes = fromMaybe [AuthorizationCode] (grant_types md)
     , redirectURIs = redirect_uris md
     , accessTokenValidity  = 24 * 60 * 60
     , refreshTokenValidity = 30 * 24 * 60 * 60

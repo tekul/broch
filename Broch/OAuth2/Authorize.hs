@@ -124,7 +124,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     getAuthorizationRequest :: Client -> Either Text (Maybe Text, ResponseType, [Scope], Maybe Text)
     getAuthorizationRequest client = do
         let stateParam = maybeParam env "state"
-            st         = either (\_ -> Nothing) id stateParam
+            st         = either (const Nothing) id stateParam
             separator  = case getResponseType of
                              Right Code -> '?'
                              Right _    -> '#'
@@ -134,7 +134,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         -- All that was just to work out how to handle the error.
         -- Now check the actual parameter values.
         either (Left . err) return $ do
-            state          <- either (Left . InvalidRequest) return $ stateParam
+            state          <- either (Left . InvalidRequest) return stateParam
             responseType   <- getResponseType
             checkResponseType client responseType
             maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
@@ -146,8 +146,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     getResponseType :: Either AuthorizationError ResponseType
     getResponseType = do
         rtParam        <- either (Left . InvalidRequest) return $ requireParam env "response_type"
-        responseType   <- maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
-        return responseType
+        maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
 
     -- TODO: Create a type "CheckResponseType" and use it to allow configuration of
     -- supported response types and build openid configuration
@@ -184,7 +183,7 @@ getClientAndRedirectURI :: (Monad m) => LoadClient m -> Map.Map Text [Text] -> m
 getClientAndRedirectURI getClient env = runEitherT $ do
     cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
     uri    <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
-    client <- maybe (left $ InvalidClient "Client does not exist") return =<< (lift $ getClient cid)
+    client <- maybe (left $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
     validateRedirectURI client uri
     right (client, uri)
   where

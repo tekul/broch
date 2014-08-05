@@ -36,6 +36,7 @@ data Scope = OpenID
            | CustomScope Text
              deriving (Eq, Show)
 
+scopeName :: Scope -> Text
 scopeName s = case s of
     OpenID  -> "openid"
     Profile -> "profile"
@@ -44,6 +45,7 @@ scopeName s = case s of
     Address -> "address"
     CustomScope n -> n
 
+scopeDescription :: Scope -> Text
 scopeDescription s = case s of
     OpenID  -> "openid"
     Profile -> "access to your profile"
@@ -52,6 +54,7 @@ scopeDescription s = case s of
     Address -> "your address"
     CustomScope n -> n
 
+scopeFromName :: Text -> Scope
 scopeFromName name = case name of
     "openid"  -> OpenID
     "profile" -> Profile
@@ -174,7 +177,7 @@ instance FromJSON ClientAuthMethod where
     parseJSON = withText "ClientAuthMethod" $ \t -> case t of
         "client_secret_basic" -> pure ClientSecretBasic
         "client_secret_jwt"   -> pure ClientSecretJwt
-        _                     -> fail("Unknown or unsupported client auth method")
+        _                     -> fail "Unknown or unsupported client auth method"
 
 instance ToJSON ClientAuthMethod where
     toJSON a = case a of
@@ -238,4 +241,4 @@ instance FromJSON TokenTime where
 
 instance ToJSON TokenTime where
     toJSON (TokenTime t) = let i = round t :: Int64
-                           in  Number $ fromIntegral $ i
+                           in  Number $ fromIntegral i

@@ -9,11 +9,13 @@ where
 
 import Prelude hiding (exp)
 
+import Control.Applicative ((<$>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict, fromStrict)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import GHC.Generics
@@ -47,11 +49,9 @@ createJwtAccessToken pubKey user client grantType scopes now = do
     where
       toJwt t = withCPRG $ \cprg -> Jwe.rsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
       issueRefresh
-        | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = fmap Just $ toJwt refreshClaims
+        | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just <$> toJwt refreshClaims
         | otherwise = return Nothing
-      subject = case user of
-                  Just s  -> s
-                  Nothing -> clientId client
+      subject = fromMaybe (clientId client) user
       claims = Claims
                  { iss = "Broch"
                  , sub = subject
@@ -62,7 +62,7 @@ createJwtAccessToken pubKey user client grantType scopes now = do
                  , nbf = Nothing
                  , iat = TokenTime now
                  , jti = Nothing
-                 , scp = (map scopeName scopes)
+                 , scp = map scopeName scopes
                  }
       refreshClaims = claims
                         { exp = TokenTime $ now + refreshTokenTTL
@@ -83,7 +83,7 @@ decodeJwtToken privKey jwt = case claims of
     Right (Just c)  -> Just $ claimsToAccessGrant c
     _               -> Nothing
   where
-    claims = fmap decodeClaims $ Jwe.rsaDecode privKey jwt
+    claims = decodeClaims <$> Jwe.rsaDecode privKey jwt
 
     decodeClaims :: (JweHeader, ByteString) -> Maybe Claims
     decodeClaims (_, t) = decode $ fromStrict t

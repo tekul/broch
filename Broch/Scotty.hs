@@ -2,6 +2,7 @@
 module Broch.Scotty where
 
 import           Blaze.ByteString.Builder (toLazyByteString)
+import           Control.Applicative (Applicative(..), (<$>))
 import           Control.Concurrent.STM
 import           Control.Monad.Reader
 import qualified Crypto.BCrypt as BCrypt
@@ -68,11 +69,15 @@ newtype BrochState = BrochState { issuerUrl :: T.Text}
 newtype BrochM a = BrochM { runBrochM :: ReaderT (TVar BrochState) IO a }
                      deriving (Functor, Monad, MonadIO, MonadReader (TVar BrochState))
 
+instance Applicative BrochM where
+    pure  = return
+    (<*>) = ap
+
 brochM :: MonadTrans t => BrochM a -> t BrochM a
 brochM = lift
 
 gets :: (BrochState -> b) -> BrochM b
-gets f = ask >>= liftIO . readTVarIO >>= return . f
+gets f = liftM f $ ask >>= liftIO . readTVarIO
 
 modify :: (BrochState -> BrochState) -> BrochM ()
 modify f = ask >>= liftIO . atomically . flip modifyTVar' f
@@ -115,9 +120,9 @@ testBroch issuer pool = do
             u <- liftIO . runDB $ BP.getUserByUsername username
             case u of
                 Nothing          -> return Nothing
-                Just (uid, hash) -> if BCrypt.validatePassword (TE.encodeUtf8 hash) (TE.encodeUtf8 password)
-                                        then return $ Just uid
-                                        else return Nothing
+                Just (uid, hash) -> return $ if BCrypt.validatePassword (TE.encodeUtf8 hash) (TE.encodeUtf8 password)
+                                        then Just uid
+                                        else Nothing
 
     let saveApproval a = runDB $ BP.createApproval a
     (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
@@ -131,7 +136,7 @@ testBroch issuer pool = do
             cid <- liftIO generateCode
             sec <- liftIO generateCode
             let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
-            runDB $ BP.createClient $ client
+            runDB $ BP.createClient client
             return client
 
         createIdToken uid client nons now code aToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nons uid now code aToken
@@ -141,16 +146,16 @@ testBroch issuer pool = do
             maybe (error "Hash failed") (return . TE.decodeUtf8) hash
 
         createUser scimData = do
-            now <- fmap Just $ liftIO getCurrentTime
-            uid <- fmap (T.pack . toString) $ liftIO $ nextRandom
-            password <- hashPassword =<< (maybe randomPassword return $ scimPassword scimData)
+            now <- Just <$> liftIO getCurrentTime
+            uid <- (T.pack . toString) <$> liftIO nextRandom
+            password <- hashPassword =<< maybe randomPassword return (scimPassword scimData)
             let meta = Meta now now Nothing Nothing
             runDB $ BP.createUser uid password scimData { scimId = Just uid, scimMeta = Just meta }
 
         getUser = liftIO . runDB . BP.getUserById
 
         userInfoHandler = withBearerToken (decodeJwtAccessToken kPr) [OpenID] $ \g -> do
-            debug $ g
+            debug g
             scimUser <- getUser $ fromJust $ granterId g
             debug scimUser
             -- Convert from SCIM... yuk
@@ -164,7 +169,7 @@ testBroch issuer pool = do
     -- TODO: abstract session data access
     csKey <- CS.getDefaultKey
 
-    sync <- newTVarIO $ BrochState { issuerUrl = issuer }
+    sync <- newTVarIO BrochState { issuerUrl = issuer }
 
     let runM m = runReaderT (runBrochM m) sync
         runActionToIO = runM
@@ -179,8 +184,7 @@ testBroch issuer pool = do
 
         get "/oauth/authorize" $ authorizationHandler csKey getClient createAuthorization getApproval createAccessToken createIdToken
         post "/oauth/token" $ tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
-        get "/login" $ do
-            html $ renderHtml $ loginPage
+        get "/login" $ html $ renderHtml loginPage
 
         post "/login" $ do
             uid  <- param "username"
@@ -198,7 +202,7 @@ testBroch issuer pool = do
             _      <- getAuthId csKey
             now    <- liftIO getPOSIXTime
             Just client <- param "client_id" >>= getClient
-            scope  <- param "scope" >>= return . (L.splitOn " ")
+            scope  <- liftM (L.splitOn " ") $ param "scope"
             html $ renderHtml $ approvalPage client scope (round now)
 
         post "/approval" $ do
@@ -214,27 +218,26 @@ testBroch issuer pool = do
             -- Redirect to authorization doesn't seem to work with oictests
             redirectFull $ L.toStrict l
 
-        get  "/connect/userinfo" $ userInfoHandler
-        post "/connect/userinfo" $ userInfoHandler
+        get  "/connect/userinfo" userInfoHandler
+        post "/connect/userinfo" userInfoHandler
 
         post "/connect/register" $ do
             b <- body
             case eitherDecode b of
                 Left err -> status badRequest400 >> text (L.pack err)
-                Right v@(Object o) -> do
-                    case fromJSON v of
-                        Error e    -> status badRequest400 >> text (L.pack e)
-                        Success md -> do
-                            c <- liftIO $ registerClient md
-                            -- Cheat here. Add the extra fields to the
-                            -- original JSON object
-                            json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
+                Right v@(Object o) -> case fromJSON v of
+                    Error e    -> status badRequest400 >> text (L.pack e)
+                    Success md -> do
+                        c <- liftIO $ registerClient md
+                        -- Cheat here. Add the extra fields to the
+                        -- original JSON object
+                        json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
                 Right _            -> status badRequest400 >> text "Registration data must be a JSON Object"
-        get "/logout" $ logout
+        get "/logout" logout
 
         get "/.well-known/openid-configuration" $ json $ toJSON config
 
-        get "/.well-known/jwks" $ json $ toJSON $ keySet
+        get "/.well-known/jwks" $ json $ toJSON keySet
 
         -- SCIM API
 
@@ -246,7 +249,7 @@ testBroch issuer pool = do
             b <- body
             case eitherDecode b of
                 Left err -> status badRequest400 >> text (L.pack err)
-                Right scimUser -> do
+                Right scimUser ->
                     -- TODO: Check data, username etc
                     liftIO $ createUser scimUser
 
@@ -261,7 +264,7 @@ testBroch issuer pool = do
         delete "/Groups/:uid" undefined
 
   where
-    randomPassword = fmap (TE.decodeUtf8 . B64.encode) $ randomBytes 12
+    randomPassword = (TE.decodeUtf8 . B64.encode) <$> randomBytes 12
 
 
     redirectFull :: T.Text -> ActionT Except BrochM b
@@ -323,13 +326,13 @@ formatScope :: [Scope] -> T.Text
 formatScope s = T.intercalate " " (map scopeName s)
 
 debug :: (MonadIO m, Show a) => a -> m ()
-debug = liftIO . putStrLn . show
+debug = liftIO . print
 
 loginPage :: H.Html
 loginPage = H.html $ do
-    H.head $ do
+    H.head $
       H.title "Login."
-    H.body $ do
+    H.body $
         H.form H.! method "post" H.! action "/login" $ do
             H.input H.! type_ "text" H.! name "username"
             H.input H.! type_ "password" H.! name "password"
@@ -337,10 +340,10 @@ loginPage = H.html $ do
 
 approvalPage :: Client -> [Text] -> Int64 -> H.Html
 approvalPage client scopes now = H.docTypeHtml $ H.html $ do
-    H.head $ do
+    H.head $
       H.title "Approvals"
     H.body $ do
-        H.h2 $ "Authorization Approval Request"
+        H.h2 "Authorization Approval Request"
         H.form H.! method "post" H.! action "/approval" $ do
             H.input H.! type_ "hidden" H.! name "client_id" H.! value (H.toValue (clientId client))
             H.label H.! for "expiry" $ "Expires after"
@@ -373,8 +376,7 @@ cacheLocation key = do
     setEncryptedCookie key "loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
 
 getCachedLocation :: CS.Key -> L.Text -> ActionT Except BrochM L.Text
-getCachedLocation key defaultUrl = getEncryptedCookie key "loc" >>=
-                                      return . (maybe defaultUrl (L.fromStrict . TE.decodeUtf8))
+getCachedLocation key defaultUrl = liftM (maybe defaultUrl (L.fromStrict . TE.decodeUtf8)) $ getEncryptedCookie key "loc"
 
 
 makeCookie :: B.ByteString -> B.ByteString -> SetCookie
@@ -384,7 +386,7 @@ renderSetCookie' :: SetCookie -> Text
 renderSetCookie' = LE.decodeUtf8 . toLazyByteString . renderSetCookie
 
 getEncryptedCookie :: CS.Key -> B.ByteString -> ActionT Except BrochM (Maybe B.ByteString)
-getEncryptedCookie key n = getCookie n >>= return . join .fmap (CS.decrypt key)
+getEncryptedCookie key n = liftM (join .fmap (CS.decrypt key)) $ getCookie n
 
 setEncryptedCookie :: CS.Key -> B.ByteString -> B.ByteString -> ActionT Except BrochM ()
 setEncryptedCookie key n v = do
@@ -399,13 +401,13 @@ clearCookie n = setHeader "Set-Cookie" $ renderSetCookie' $ (makeCookie n "") { 
 
 getCookie :: B.ByteString -> ActionT Except BrochM (Maybe B.ByteString)
 getCookie n = do
-    cookies <- fmap (fmap (parseCookies . BL.toStrict . LE.encodeUtf8)) $ header "Cookie"
+    cookies <- fmap (parseCookies . BL.toStrict . LE.encodeUtf8) <$> header "Cookie"
     case cookies of
         Nothing -> return Nothing
         Just cs -> return $ lookup n cs
 
 toMap :: [(Text, Text)] -> Map.Map T.Text [T.Text]
-toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [(L.toStrict y)])
+toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [L.toStrict y])
 
 withBearerToken :: MonadIO m
                 => (B.ByteString -> Maybe AccessGrant)
@@ -413,7 +415,7 @@ withBearerToken :: MonadIO m
                 -> (AccessGrant
                 -> ActionT Except m ())
                 -> ActionT Except m ()
-withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHeader $ \h -> do
+withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHeader $ \h ->
     case bearerToken h of
         Nothing -> unauthorized
         Just t  -> case decodeToken t of
@@ -461,7 +463,7 @@ basicAuthCredentials r = do
     decodeHeader h = case B.split ' ' h of
                        ["Basic", b] -> either (const Nothing) creds $ B64.decode b
                        _            -> Nothing
-    creds bs = case fmap (T.break (== ':')) $ TE.decodeUtf8' bs of
+    creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
                  Left _       -> Nothing
                  Right (u, p) -> if T.length p == 0
                                  then Nothing
