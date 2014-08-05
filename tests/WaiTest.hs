@@ -8,6 +8,7 @@ import Control.Arrow (second)
 import Control.Monad (liftM)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
+import Data.Aeson (encode, ToJSON)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as B
@@ -62,6 +63,9 @@ getP url params = request "" $ mkRequest "GET" $ B.concat [strippedUrl, H.render
 post :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
 post url params = let content = H.renderQuery False $ toQuery params
                   in request content $ addHeader ("Content-Type", "application/x-www-form-urlencoded") $ mkRequest "POST" url
+
+postJSON :: ToJSON a => ByteString -> a -> WaiTest ()
+postJSON url v = request (BL.toStrict $ encode v) $ addHeader ("Content-Type", "application/json") $ mkRequest "POST" url
 
 dumpResponse = withResponse $ liftIO . print
 

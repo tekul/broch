@@ -76,6 +76,7 @@ Test-suite tests
                     , WaiIntegrationSpec
   Build-depends:      broch
                     , jose-jwt
+                    , aeson-qq > 0.7
                     , base
                     , blaze-builder >= 0.3
                     , case-insensitive

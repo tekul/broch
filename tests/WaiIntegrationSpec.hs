@@ -1,10 +1,12 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module WaiIntegrationSpec where
 
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (decode)
+import Data.Aeson (encode, decode, fromJSON)
+import Data.Aeson.Types (Result(..), parse)
+import Data.Aeson.QQ
 import qualified Data.ByteString.Char8 as B
 import Data.Int (Int64)
 import qualified Data.Text.Encoding as TE
@@ -17,13 +19,41 @@ import Test.Hspec
 
 import Broch.Scotty
 import Broch.OpenID.Discovery
+import Broch.OpenID.Registration (ClientMetaData)
 import WaiTest
 
 integrationSpec :: Spec
-integrationSpec = authCodeSuccessSpec >> badClientSpec >> openIdConfigSpec
+integrationSpec = clientRegistrationSpec >> authCodeSuccessSpec >> badClientSpec >> openIdConfigSpec
 
 run :: WaiTest a -> IO a
 run t = testapp >>= \a -> runTest a t
+
+clientReg :: ClientMetaData
+clientReg = c
+  where
+    Success c = fromJSON $ [aesonQQ|
+        { token_endpoint_auth_method: "client_secret_basic"
+        , subject_type: "public"
+        , application_type: "web"
+        , client_name: "Integration tests"
+        , id_token_signed_response_alg: "HS256"
+        , response_types: ["code", "token", "id_token", "code id_token", "code token"]
+        , require_auth_time: true
+        , default_max_age: 3600
+        , contacts: ["admin@rndsa19sui.com"]
+        , redirect_uris: ["http://localhost/authz_cb"]
+        , jwks_uri: "http://localhost:8090/static/jwks.json"
+        , grant_types: ["authorization_code", "implicit", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer:"]
+        }
+|]
+
+clientRegistrationSpec :: Spec
+clientRegistrationSpec =
+    describe "OpenID Client registration" $ do
+
+        it "Supports dynamic registration" $ run $ do
+            postJSON "/connect/register" $ clientReg
+            statusIs 201
 
 authCodeSuccessSpec :: Spec
 authCodeSuccessSpec =

@@ -231,6 +231,7 @@ testBroch issuer pool = do
                         c <- liftIO $ registerClient md
                         -- Cheat here. Add the extra fields to the
                         -- original JSON object
+                        status created201
                         json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
                 Right _            -> status badRequest400 >> text "Registration data must be a JSON Object"
         get "/logout" logout
