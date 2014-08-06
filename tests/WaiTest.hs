@@ -72,6 +72,13 @@ dumpResponse = withResponse $ liftIO . print
 statusIs expected = withResponse $ \SResponse { simpleStatus = s } ->
     liftIO $ HUnit.assertBool ("Expected status " ++ show expected ++ " but was " ++ show (H.statusCode s)) (expected == H.statusCode s)
 
+followRedirect :: WaiTest ()
+followRedirect = do
+    Just response <- fmap testResponse ST.get
+    let status = simpleStatus response
+    liftIO $ HUnit.assertBool ("Expected a redirect but status was " ++ show status)  (H.found302 == status || H.seeOther303 == status)
+    getLocationHeader >>= get
+
 failure msg = liftIO $ HUnit.assertFailure msg
 
 basicAuth name password = do

@@ -67,20 +67,17 @@ authCodeSuccessSpec run =
             statusIs 200
 
             login "cat" "cat"
-            statusIs 302
             -- Server redirects to the original authz request
             -- Resend original request
-            getLocationHeader >>= get
-            statusIs 302
+            followRedirect
             -- Redirect to approvals
-            getLocationHeader >>= get
+            followRedirect
             statusIs 200
             now <- liftIO $ getPOSIXTime
             let expiry = round $ now + posixDayLength :: Int64
             post "/approval" [("client_id", "app"), ("scope", "scope1"), ("scope", "scope2"), ("expiry", B.pack $ show expiry)]
-            statusIs 302
             -- Resend the original request *again*
-            getLocationHeader >>= get
+            followRedirect
             statusIs 302
             code <- getLocationParam "code"
             get "/logout"
@@ -94,14 +91,12 @@ badClientSpec run =
 
         it "returns a non-redirect error if redirect_uri is wrong" $ run $ do
             authCodeRequest "app" "http://notapp" []
-            statusIs 302
-            -- Get the login page
-            getLocationHeader >>= get
+            -- Redirect to the login page
+            followRedirect
             statusIs 200
             login "cat" "cat"
-            statusIs 302
-            -- Resend original request
-            getLocationHeader >>= get
+            -- Redirected to the original request
+            followRedirect
             statusIs 400
 
 openIdConfigSpec run =
