@@ -33,7 +33,7 @@ Library
                     , Broch.Persist
                     , Broch.Scotty
   Other-Modules:      Broch.Scim
-  Build-Depends:      base >= 4
+  Build-Depends:      base >= 4 && < 5
                     , time
                     , either >= 3.4
                     , mtl >= 2.1
