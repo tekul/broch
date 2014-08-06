@@ -4,8 +4,8 @@
 module WaiIntegrationSpec where
 
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (encode, decode, fromJSON)
-import Data.Aeson.Types (Result(..), parse)
+import Data.Aeson (decode, fromJSON)
+import Data.Aeson.Types (Result(..))
 import Data.Aeson.QQ
 import qualified Data.ByteString.Char8 as B
 import Data.Int (Int64)
@@ -23,10 +23,10 @@ import Broch.OpenID.Registration (ClientMetaData)
 import WaiTest
 
 integrationSpec :: Spec
-integrationSpec = clientRegistrationSpec >> authCodeSuccessSpec >> badClientSpec >> openIdConfigSpec
-
-run :: WaiTest a -> IO a
-run t = testapp >>= \a -> runTest a t
+integrationSpec = do
+    app <- runIO testapp
+    let run t = runTest app t
+    clientRegistrationSpec run >> authCodeSuccessSpec run >> badClientSpec run >> openIdConfigSpec run
 
 clientReg :: ClientMetaData
 clientReg = c
@@ -47,16 +47,14 @@ clientReg = c
         }
 |]
 
-clientRegistrationSpec :: Spec
-clientRegistrationSpec =
+clientRegistrationSpec run =
     describe "OpenID Client registration" $ do
 
         it "Supports dynamic registration" $ run $ do
             postJSON "/connect/register" $ clientReg
             statusIs 201
 
-authCodeSuccessSpec :: Spec
-authCodeSuccessSpec =
+authCodeSuccessSpec run =
     describe "A successful authorization_code flow" $ do
 
         it "logs in the user, provides a code and issues an access token to the client" $ run $ do
@@ -91,7 +89,7 @@ authCodeSuccessSpec =
             basicAuth "app" "appsecret"
             post "/oauth/token" [("client_id", "app"), ("grant_type", "authorization_code"), ("redirect_uri", redirectUri), ("code", code)]
 
-badClientSpec =
+badClientSpec run =
     describe "A possibly malicious client request" $ do
 
         it "returns a non-redirect error if redirect_uri is wrong" $ run $ do
@@ -106,7 +104,7 @@ badClientSpec =
             getLocationHeader >>= get
             statusIs 400
 
-openIdConfigSpec =
+openIdConfigSpec run =
     describe "The .well-known endpoints" $ do
 
         it "OpenID Configuration and JWKs are returned" $ run $ do
@@ -130,5 +128,4 @@ authCodeRequest cid redirectUri scopes = getP "/oauth/authorize" params
 testapp = createSqlitePool ":memory:" 2 >>= testBroch "http://testapp" >>= return -- . logStdoutDev
 
 login uid pass = post "/login" [("username", uid), ("password", pass)]
-
 
