@@ -1,5 +1,25 @@
-language: haskell
+# See https://github.com/hvr/multi-ghc-travis
 
-ghc:
-    - 7.8
-    - 7.6
+env:
+ - GHCVER=7.6.3
+ - GHCVER=7.8.3
+
+before_install:
+ - travis_retry sudo add-apt-repository -y ppa:hvr/ghc
+ - travis_retry sudo apt-get update
+ - travis_retry sudo apt-get install cabal-install-1.18 happy-1.19.3 ghc-$GHCVER
+ - export PATH=/opt/happy/1.19.3/bin:/opt/ghc/$GHCVER/bin:/opt/cabal/1.18/bin:$PATH
+ - export CABAL=cabal-1.18
+ - type cabal-1.18
+
+install:
+ - type happy
+ - $CABAL update
+ - $CABAL install --only-dependencies --enable-tests
+
+script:
+ - $CABAL configure --enable-tests -v2
+ - $CABAL build
+ - $CABAL test
+ - $CABAL check
+ - $CABAL sdist
