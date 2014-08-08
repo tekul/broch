@@ -94,7 +94,7 @@ instance ScottyError Except where
     stringError = StringEx
     showError   = fromString . show
 
-handleEx :: Monad m => Except -> ActionT Except m ()
+handleEx :: MonadIO m => Except -> ActionT Except m ()
 handleEx (WWWAuthenticate hdr) = status unauthorized401 >> setHeader "WWW-Authenticate" hdr
 handleEx (InvalidToken msg)    = do
     status unauthorized401
@@ -102,7 +102,11 @@ handleEx (InvalidToken msg)    = do
 handleEx (InsufficientScope s) = do
     status forbidden403
     setHeader "WWW-Authenticate" $ L.concat ["Bearer, error=\"insufficient_scope\", scope=\"", L.fromStrict $ formatScope s, "\""]
-handleEx _ = status internalServerError500 >> text "Whoops! Something went wrong!"
+handleEx e = do
+    request >>= debug . W.rawQueryString
+    body >>= debug
+    debug e
+    status internalServerError500 >> (text $ L.pack $ show e)  --"Whoops! Something went wrong!"
 
 testBroch :: T.Text -> ConnectionPool -> IO W.Application
 testBroch issuer pool = do
