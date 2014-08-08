@@ -5,7 +5,7 @@ module WaiTest where
 
 import qualified Blaze.ByteString.Builder as Builder
 import Control.Arrow (second)
-import Control.Monad (liftM)
+import Control.Monad (liftM, when, unless)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
 import Data.Aeson (encode, ToJSON)
@@ -17,10 +17,11 @@ import qualified Data.List as DL
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Text.Encoding as TE
+import Data.Text (Text)
 import Data.Time.Clock (getCurrentTime)
 import qualified Network.HTTP.Types as H
 import Network.HTTP.Types.QueryLike
-import Network.URI (URI, uriQuery, parseURIReference)
+import Network.URI (URI, uriPath, uriQuery, parseURIReference)
 import Network.Wai
 import Network.Wai.Internal
 import Network.Wai.Test hiding (request)
@@ -53,14 +54,14 @@ reset = do
 get :: ByteString -> WaiTest ()
 get url = getP url []
 
-getP :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
+getP :: ByteString -> [(Text, Text)] -> WaiTest ()
 getP url params = request "" $ mkRequest "GET" $ B.concat [strippedUrl, H.renderQuery True $ toQuery params]
   where
     strippedUrl = if B.isPrefixOf "http" url
                       then B.dropWhile ('/' /=) $ B.drop 8 url
                       else url
 
-post :: ByteString -> [(ByteString, ByteString)] -> WaiTest ()
+post :: ByteString -> [(Text, Text)] -> WaiTest ()
 post url params = let content = H.renderQuery False $ toQuery params
                   in request content $ addHeader ("Content-Type", "application/x-www-form-urlencoded") $ mkRequest "POST" url
 
@@ -72,12 +73,21 @@ dumpResponse = withResponse $ liftIO . print
 statusIs expected = withResponse $ \SResponse { simpleStatus = s } ->
     liftIO $ HUnit.assertBool ("Expected status " ++ show expected ++ " but was " ++ show (H.statusCode s)) (expected == H.statusCode s)
 
+statusIsGood = withResponse $ \SResponse { simpleStatus = s } -> do
+    let sc = H.statusCode s
+    liftIO $ HUnit.assertBool ("Expect 20x or 30x status but was " ++ show sc) (sc >= 200 && sc < 400)
+
 followRedirect :: WaiTest ()
 followRedirect = do
     Just response <- fmap testResponse ST.get
-    let status = simpleStatus response
-    liftIO $ HUnit.assertBool ("Expected a redirect but status was " ++ show status)  (H.found302 == status || H.seeOther303 == status)
+    unless (isRedirect response) dumpResponse
+    liftIO $ HUnit.assertBool ("Expected a redirect but status was " ++ show (simpleStatus response)) (isRedirect response)
     getLocationHeader >>= get
+
+
+isRedirect :: SResponse -> Bool
+isRedirect r = let status = simpleStatus r
+               in H.found302 == status || H.seeOther303 == status
 
 failure msg = liftIO $ HUnit.assertFailure msg
 
@@ -92,11 +102,11 @@ getLocationHeader = withResponse $ \SResponse { simpleHeaders = h } ->
         Nothing -> fail "No location header found"
         Just l  -> return l
 
-getLocationParam :: ByteString -> WaiTest ByteString
+getLocationParam :: ByteString -> WaiTest Text
 getLocationParam name = getLocationQuery >>= \q ->
     case lookup name q of
         Nothing -> fail $ "Query parameter not found: " ++ B.unpack name
-        Just p  -> return p
+        Just p  -> return $ TE.decodeUtf8 p
 
 getLocationQuery :: WaiTest [(ByteString, ByteString)]
 getLocationQuery = do
@@ -114,6 +124,13 @@ withResponse :: (SResponse -> WaiTest a) -> WaiTest a
 withResponse f = do
     Just response <- fmap testResponse ST.get
     f response
+
+
+withOptionalRedirect :: String -> WaiTest () -> WaiTest ()
+withOptionalRedirect path f = withResponse $ \r ->
+    when (isRedirect r) $ do
+        p <- fmap uriPath getLocationURI
+        when (p == path) $ followRedirect >> statusIsGood >> f
 
 mkRequest method url =
     let (urlPath, urlQuery) = parseUrl

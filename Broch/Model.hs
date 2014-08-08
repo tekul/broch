@@ -7,6 +7,7 @@ import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Int (Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Maybe (fromJust)
 import Data.Time
 import Data.Time.Clock.POSIX
@@ -62,6 +63,9 @@ scopeFromName name = case name of
     "phone"   -> Phone
     "address" -> Address
     n         -> CustomScope n
+
+formatScope :: [Scope] -> Text
+formatScope s = T.intercalate " " $ map scopeName s
 
 type LoadClient m = ClientId
                  -> m (Maybe Client)
@@ -206,15 +210,18 @@ data ResponseType = Code
                   | CodeTokenIdToken
                     deriving (Eq, Show)
 
+responseTypeName :: ResponseType -> Text
+responseTypeName t = case t of
+    Code  -> "code"
+    Token -> "token"
+    IdTokenResponse -> "id_token"
+    CodeIdToken -> "code id_token"
+    CodeToken -> "code token"
+    TokenIdToken -> "id_token token"
+    CodeTokenIdToken -> "code id_token token"
+
 instance ToJSON ResponseType where
-    toJSON t = String $ case t of
-                          Code  -> "code"
-                          Token -> "token"
-                          IdTokenResponse -> "id_token"
-                          CodeIdToken -> "code id_token"
-                          CodeToken -> "code token"
-                          TokenIdToken -> "id_token token"
-                          CodeTokenIdToken -> "code id_token token"
+    toJSON = String . responseTypeName
 
 instance FromJSON ResponseType where
     parseJSON = withText "ResponseType" $ \t ->
@@ -230,6 +237,7 @@ responseTypes =
     , ("id_token token", TokenIdToken)
     , ("code id_token token", CodeTokenIdToken)
     ]
+
 
 
 newtype TokenTime = TokenTime POSIXTime deriving (Show, Eq, Ord)

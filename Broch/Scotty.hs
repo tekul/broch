@@ -323,9 +323,6 @@ testBroch issuer pool = do
             Just u  -> return (TE.decodeUtf8 u)
             Nothing -> cacheLocation key >> redirectFull "/login"
 
-formatScope :: [Scope] -> T.Text
-formatScope s = T.intercalate " " (map scopeName s)
-
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
 

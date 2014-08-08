@@ -3,20 +3,26 @@
 
 module WaiIntegrationSpec where
 
+import Control.Applicative ((<$>))
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (decode, fromJSON)
 import Data.Aeson.Types (Result(..))
 import Data.Aeson.QQ
 import qualified Data.ByteString.Char8 as B
 import Data.Int (Int64)
+import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX
 import Database.Persist.Sqlite (createSqlitePool)
 import Jose.Jwk
 -- import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Test hiding (request)
+import Network.URI (uriPath)
 import Test.Hspec
 
+import Broch.Model
 import Broch.Scotty
 import Broch.OpenID.Discovery
 import Broch.OpenID.Registration (ClientMetaData)
@@ -59,27 +65,10 @@ authCodeSuccessSpec run =
 
         it "logs in the user, provides a code and issues an access token to the client" $ run $ do
             let redirectUri = "http://localhost:8080/app"
-            -- Auth code request for default client scopes
-            authCodeRequest "app" redirectUri []
-            statusIs 302
-
-            get "/login"
-            statusIs 200
-
-            login "cat" "cat"
-            -- Server redirects to the original authz request
-            -- Resend original request
-            followRedirect
-            -- Redirect to approvals
-            followRedirect
-            statusIs 200
-            now <- liftIO $ getPOSIXTime
-            let expiry = round $ now + posixDayLength :: Int64
-            post "/approval" [("client_id", "app"), ("scope", "scope1"), ("scope", "scope2"), ("expiry", B.pack $ show expiry)]
-            -- Resend the original request *again*
-            followRedirect
-            statusIs 302
-            code <- getLocationParam "code"
+            authzResponse <- authzRequest "app" redirectUri Code []
+            code <- case authzResponse of
+                AuthzResponse Nothing Nothing (Just c) -> return c
+                _ -> fail $ "Invalid response " ++ show authzResponse
             get "/logout"
             reset
             -- Post as client.
@@ -90,7 +79,7 @@ badClientSpec run =
     describe "A possibly malicious client request" $ do
 
         it "returns a non-redirect error if redirect_uri is wrong" $ run $ do
-            authCodeRequest "app" "http://notapp" []
+            sendAuthzRequest "app" "http://notapp" Code []
             -- Redirect to the login page
             followRedirect
             statusIs 200
@@ -113,14 +102,78 @@ openIdConfigSpec run =
             let Just jwks = decode $ json2 :: Maybe JwkSet
             assertEqual "There should be one JWK" 1 (length $ keys jwks)
 
-authCodeRequest cid redirectUri scopes = getP "/oauth/authorize" params
+-- TODO: Move OpenID tests to separate module and rename this module to
+-- OAuth2IntegrationSpec.
+openIdFlowsSpec run =
+    describe "OpenID authentication flows" $ do
+        describe "A request with response_type=code" $ do
+            it "Supports openid scope" $ do
+                pending
+
+        describe "A request with response_type=token" $ do
+            it "Supports requests containing a nonce" $ do
+                pending
+
+        describe "A request with response_type=id_token" $ do
+            -- What behaviour do we want when scope is missing
+            -- but the respose_type is openid?
+            it "Requires openid scope" $ do
+                pending
+
+        describe "A request with response_type=code token" $ do
+            it "Supports code token response type" $ do
+                pending
+
+        describe "A request with response_type=code id_token" $ do
+            it "Includes c_hash in id_token"
+                pending
+
+        describe "A request with response_type=token id_token" $ do
+            it "Includes at_hash in id_token"
+                pending
+
+data AuthzResponse = AuthzResponse
+    { idToken      :: Maybe B.ByteString
+    , accessToken  :: Maybe B.ByteString
+    , authzCode    :: Maybe Text
+    } deriving (Show)
+
+authzRequest :: ClientId -> Text -> ResponseType -> [Scope] -> WaiTest AuthzResponse
+authzRequest cid redirectUri rt scopes = do
+    sendAuthzRequest cid redirectUri rt scopes
+    loginIfRequired "cat" "cat"
+    statusIsGood
+    approveIfRequired
+    q <- getLocationQuery
+    return $ AuthzResponse (lookup "id_token" q) (lookup "access_token" q) (TE.decodeUtf8 <$> lookup "code" q)
+
+sendAuthzRequest cid redirectUri rt scopes = getP "/oauth/authorize" params
   where
     params = case scopes of
         [] -> baseParams
-        _  -> ("scope", B.intercalate " " scopes) : baseParams
-    baseParams = [("client_id", cid), ("state", "1234"), ("response_type", "code"), ("redirect_uri", redirectUri)]
+        _  -> ("scope", formatScope scopes) : baseParams
+    baseParams = [("client_id", cid), ("state", "1234"), ("response_type", responseTypeName rt), ("redirect_uri", redirectUri)]
+
 
 testapp = createSqlitePool ":memory:" 2 >>= testBroch "http://testapp" >>= return -- . logStdoutDev
 
-login uid pass = post "/login" [("username", uid), ("password", pass)]
+approveIfRequired :: WaiTest ()
+approveIfRequired = withResponse $ \r ->
+    when (isRedirect r) $ do
+        p <- fmap uriPath getLocationURI
+        when (p == "/approval") $ do
+            -- Scope to approve
+            scope <- getLocationParam "scope"
+            cid   <- getLocationParam "client_id"
+            followRedirect
+            -- TODO: Check we're on the approvals page
+            now <- liftIO $ getPOSIXTime
+            let expiry = round $ now + posixDayLength :: Int64
+            post "/approval" [("client_id", cid), ("expiry", T.pack $ show expiry), ("scope", scope)]
+            followRedirect
+
+
+loginIfRequired username password = withOptionalRedirect "/login" $ login username password >> followRedirect
+
+login username pass = post "/login" [("username", username), ("password", pass)]
 
