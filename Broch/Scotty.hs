@@ -55,7 +55,7 @@ testClients :: [Client]
 testClients =
     [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True
     , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True
-    , Client "app"   (Just "appsecret")   [AuthorizationCode, RefreshToken]  ["http://localhost:8080/app"] 300 300 [CustomScope "scope1", CustomScope "scope2"] False
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False
     ]
 
 testUsers :: [ScimUser]

@@ -73,7 +73,8 @@ Test-suite tests
                     , Broch.OAuth2.AuthorizationSpec
                     , Broch.OAuth2.TestData
                     , WaiTest
-                    , WaiIntegrationSpec
+                    , OAuth2IntegrationSpec
+                    , OICIntegrationSpec
   Build-depends:      broch
                     , jose-jwt
                     , aeson-qq > 0.7

@@ -21,7 +21,7 @@ import Data.Text (Text)
 import Data.Time.Clock (getCurrentTime)
 import qualified Network.HTTP.Types as H
 import Network.HTTP.Types.QueryLike
-import Network.URI (URI, uriPath, uriQuery, parseURIReference)
+import Network.URI (URI, uriPath, uriQuery, uriFragment, parseURIReference)
 import Network.Wai
 import Network.Wai.Internal
 import Network.Wai.Test hiding (request)
@@ -84,17 +84,21 @@ followRedirect = do
     liftIO $ HUnit.assertBool ("Expected a redirect but status was " ++ show (simpleStatus response)) (isRedirect response)
     getLocationHeader >>= get
 
-
 isRedirect :: SResponse -> Bool
 isRedirect r = let status = simpleStatus r
                in H.found302 == status || H.seeOther303 == status
 
 failure msg = liftIO $ HUnit.assertFailure msg
 
-basicAuth name password = do
-    s <- ST.get
-    let authz = B.concat ["Basic ", B64.encode $ B.concat [name, ":", password]]
-    ST.put s {testAuthz = Just authz}
+basicAuth :: Text -> Text -> WaiTest ()
+basicAuth name password = let authz = Just $ B.concat ["Basic ", B64.encode $ B.concat [TE.encodeUtf8 name, ":", TE.encodeUtf8 password]]
+                          in  ST.modify $ \s -> s {testAuthz = authz}
+
+bearerAuth :: ByteString -> WaiTest()
+bearerAuth t = ST.modify $ \s -> s {testAuthz = Just $ B.concat ["Bearer ", t]}
+
+clearAuthz :: WaiTest()
+clearAuthz = ST.modify $ \s -> s {testAuthz = Nothing}
 
 getLocationHeader :: WaiTest ByteString
 getLocationHeader = withResponse $ \SResponse { simpleHeaders = h } ->
@@ -103,15 +107,18 @@ getLocationHeader = withResponse $ \SResponse { simpleHeaders = h } ->
         Just l  -> return l
 
 getLocationParam :: ByteString -> WaiTest Text
-getLocationParam name = getLocationQuery >>= \q ->
+getLocationParam name = getLocationParams >>= \q ->
     case lookup name q of
         Nothing -> fail $ "Query parameter not found: " ++ B.unpack name
         Just p  -> return $ TE.decodeUtf8 p
 
-getLocationQuery :: WaiTest [(ByteString, ByteString)]
-getLocationQuery = do
+getLocationParams :: WaiTest [(ByteString, ByteString)]
+getLocationParams = do
     l <- getLocationURI
-    return $ map (second $ fromMaybe "") $ H.parseQuery $ (B.pack . uriQuery) l
+    let ps = case uriQuery l of
+               [] -> uriFragment l
+               _  -> uriQuery l
+    return $ map (second $ fromMaybe "") $ H.parseQuery $ B.pack ps
 
 getLocationURI :: WaiTest URI
 getLocationURI = do

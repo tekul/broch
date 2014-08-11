@@ -8,11 +8,14 @@ module Broch.OAuth2.Token
     )
 where
 
+import Control.Applicative
+import Data.Monoid
 import Control.Monad (when)
 import Control.Monad.Error (lift)
 import Control.Monad.Trans.Either
 
 import Data.Aeson
+import Data.Aeson.Types (Parser)
 import Data.Map (Map)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
@@ -30,6 +33,11 @@ data TokenType = Bearer deriving (Show, Eq)
 instance ToJSON TokenType where
     toJSON Bearer = String "bearer"
 
+instance FromJSON TokenType where
+    parseJSON (String "bearer") = pure Bearer
+    parseJSON _                 = mempty
+
+-- TODO: newtypes for tokens scopestring etc
 data AccessTokenResponse = AccessTokenResponse
   { accessToken  :: !ByteString
   , tokenType    :: !TokenType
@@ -48,6 +56,15 @@ instance ToJSON AccessTokenResponse where
                     ] ++ maybe [] (\r -> ["refresh_token" .= TE.decodeUtf8 r]) mr
                       ++ maybe [] (\s -> ["scope"         .= TE.decodeUtf8 s]) ms
                       ++ maybe [] (\i -> ["id_token"      .= TE.decodeUtf8 i]) mi
+
+instance FromJSON AccessTokenResponse where
+    parseJSON = withObject "AccessTokenResponse" $ \v ->
+        AccessTokenResponse <$> fmap TE.encodeUtf8 (v .: "access_token")
+                            <*> v .: "token_type"
+                            <*> fmap fromIntegral (v .: "expires_in" :: Parser Int)
+                            <*> fmap (fmap TE.encodeUtf8) (v .:? "id_token")
+                            <*> fmap (fmap TE.encodeUtf8) (v .:? "refresh_token")
+                            <*> fmap (fmap TE.encodeUtf8) (v .:? "scope")
 
 -- See http://tools.ietf.org/html/rfc6749#section-5.2 for error handling
 data TokenError = InvalidRequest Text        |
