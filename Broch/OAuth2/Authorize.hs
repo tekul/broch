@@ -7,14 +7,14 @@ module Broch.OAuth2.Authorize
     )
 where
 
-import Control.Monad (liftM, liftM2, unless)
+import Control.Monad (liftM, liftM2, when, unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Either
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.List (sort)
 import Data.Time.Clock.POSIX
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 
 import qualified Data.ByteString.Base16 as Hex
@@ -140,6 +140,16 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
             maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
             nonce          <- either (Left . InvalidRequest) return $ maybeParam env "nonce"
             requestedScope <- checkScope client $ fmap (map scopeFromName) maybeScope
+            let isOpenID   = OpenID `elem` requestedScope
+
+            -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
+            when (responseType == Token && isOpenID) $
+                Left $ InvalidRequest "openid scope cannot be user with 'token' response type"
+            -- Implicit and Hybrid OpenID requests require a nonce
+            -- http://openid.net/specs/openid-connect-core-1_0.html#ImplicitAuthRequest
+            -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
+            when (responseType /= Code  && isOpenID && isNothing nonce) $
+                Left $ InvalidRequest "A nonce is required for this response type"
 
             return (state, responseType, requestedScope, nonce)
 
