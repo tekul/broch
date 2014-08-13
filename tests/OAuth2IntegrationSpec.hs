@@ -35,7 +35,7 @@ authCodeSuccessSpec run =
 
         it "logs in the user, provides a code and issues an access token to the client" $ run $ do
             let redirectUri = "http://localhost:8080/app"
-            authzResponse <- authzRequest "app" redirectUri [] Code []
+            authzResponse <- authzRequest "app" redirectUri [CustomScope "scope1", CustomScope "scope2"] Code []
             code <- case authzResponse of
                 AuthzResponse Nothing Nothing (Just c) -> return c
                 _ -> fail $ "Invalid response " ++ show authzResponse

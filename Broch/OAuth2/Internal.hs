@@ -24,7 +24,8 @@ checkRequestedScope defaultScope maybeScope = case maybeScope of
   Just askedFor ->
     if null denied
       then return askedFor
-      else Left "Requested scope exceeds allowed scope"
+      else Left $ T.concat ["Requested scope (", formatScope askedFor,
+                           ") exceeds allowed scope (", formatScope defaultScope, ")"]
     where
       granted = askedFor `intersect` defaultScope
       denied  = askedFor \\ granted

@@ -98,7 +98,7 @@ clientCredentialsTokenRequestSpec =
 
       it "returns invalid_scope if the requested scope exceeds allowed scope" $ do
         let env = Map.insert "scope" ["scope0 scope1 admin"] (createEnv ClientCredentials)
-        doToken env adminClient @?= (Left $ InvalidScope "Requested scope exceeds allowed scope")
+        doToken env adminClient @?= (Left $ InvalidScope "Requested scope (scope0 scope1 admin) exceeds allowed scope (scope1 scope2 scope3 admin)")
 
 resourceOwnerGrantSpec =
     describe "A resource owner token request" $ do
