@@ -7,12 +7,12 @@ module Broch.Scim
     , Email(..)
     , ScimUser(..)
     , Phone(..)
-    , createScimUser
     )
 where
 
 import Data.Aeson
 import Data.Aeson.Types(Options(..), defaultOptions)
+import Data.Default.Generics
 import Data.Char (toLower, toUpper)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
@@ -47,6 +47,9 @@ instance FromJSON Name
 instance ToJSON Name where
     toJSON = genericToJSON omitNothingOptions
 
+instance Default Name
+
+
 data Email = Email
     { emailValue   :: !Text
     , emailType    :: !MT
@@ -57,6 +60,9 @@ instance FromJSON Email where
     parseJSON = genericParseJSON emailOptions
 instance ToJSON Email where
     toJSON = genericToJSON emailOptions
+
+instance Default Email
+
 
 emailOptions :: Options
 emailOptions = prefixOptions "email"
@@ -126,28 +132,7 @@ data ScimUser = ScimUser
     , scimPassword     :: !MT
     } deriving (Show, Generic)
 
-createScimUser :: Maybe ScimId -> Text -> ScimUser
-createScimUser uid username = ScimUser
-    { scimId           = uid
-    , scimUserName     = username
-    , scimSchemas      = Nothing
-    , scimMeta         = Nothing
-    , scimName         = Nothing
-    , scimDisplayName  = Nothing
-    , scimNickName     = Nothing
-    , scimProfileUrl   = Nothing
-    , scimTitle        = Nothing
-    , scimUserType     = Nothing
-    , scimPreferredLanguage = Nothing
-    , scimLocale       = Nothing
-    , scimTimezone     = Nothing
-    , scimActive       = Nothing
-    , scimEmails       = Nothing
-    , scimAddresses    = Nothing
-    , scimPhoneNumbers = Nothing
-    , scimIms          = Nothing
-    , scimPassword     = Nothing
-    }
+instance Default ScimUser
 
 instance FromJSON ScimUser where
     parseJSON = genericParseJSON userOptions

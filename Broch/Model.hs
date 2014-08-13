@@ -35,7 +35,7 @@ data Scope = OpenID
            | Phone
            | Address
            | CustomScope Text
-             deriving (Eq, Show)
+             deriving (Eq, Ord, Show)
 
 scopeName :: Scope -> Text
 scopeName s = case s of

@@ -11,6 +11,7 @@ import           Data.Aeson hiding (json)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
+import           Data.Default.Generics as DD
 import           Data.Int (Int64)
 import           Data.List (intersect)
 import qualified Data.HashMap.Strict as HM
@@ -36,10 +37,10 @@ import qualified Text.Blaze.Html5 as H
 import           Text.Blaze.Html5.Attributes hiding (scope)
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Web.ClientSession as CS
-import           Web.Cookie
+import           Web.Cookie as Cookie
 import           Web.Scotty.Trans
 
-import           Broch.Model
+import           Broch.Model hiding (Email)
 import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.Token
 import           Broch.OpenID.Discovery (defaultOpenIDConfiguration)
@@ -49,7 +50,7 @@ import           Broch.OpenID.UserInfo
 import qualified Broch.Persist as BP
 import           Broch.Random
 import           Broch.Token
-import           Broch.Scim (ScimUser(..), Meta(..), createScimUser)
+import           Broch.Scim
 
 testClients :: [Client]
 testClients =
@@ -60,8 +61,13 @@ testClients =
 
 testUsers :: [ScimUser]
 testUsers =
-    [ (createScimUser Nothing "cat") { scimPassword = Just "cat" }
-    , (createScimUser Nothing "dog") { scimPassword = Just "dog" }
+    [ DD.def
+        { scimUserName = "cat"
+        , scimPassword = Just "cat"
+        , scimName     = Just $ DD.def {nameFormatted = Just "Tom Cat", nameFamilyName = Just "Cat", nameGivenName = Just "Tom"}
+        , scimEmails = Just [DD.def {emailValue = "cat@example.com"}]
+        }
+    , DD.def { scimUserName = "dog", scimPassword = Just "dog" }
     ]
 
 newtype BrochState = BrochState { issuerUrl :: T.Text}
@@ -159,13 +165,9 @@ testBroch issuer pool = do
         getUser = liftIO . runDB . BP.getUserById
 
         userInfoHandler = withBearerToken (decodeJwtAccessToken kPr) [OpenID] $ \g -> do
-            debug g
             scimUser <- getUser $ fromJust $ granterId g
-            debug scimUser
             -- Convert from SCIM... yuk
-            -- Todo: Filter data based on scope
-            json $ scimUserToUserInfo $ fromJust scimUser
-
+            json $ scopedClaims (grantScope g) $ scimUserToUserInfo $ fromJust scimUser
 
     mapM_ createUser testUsers
 
@@ -382,7 +384,7 @@ getCachedLocation key defaultUrl = liftM (maybe defaultUrl (L.fromStrict . TE.de
 
 
 makeCookie :: B.ByteString -> B.ByteString -> SetCookie
-makeCookie n v = def { setCookieName = n, setCookieValue = v, setCookieHttpOnly = True, setCookiePath = Just "/" }
+makeCookie n v = Cookie.def { setCookieName = n, setCookieValue = v, setCookieHttpOnly = True, setCookiePath = Just "/" }
 
 renderSetCookie' :: SetCookie -> Text
 renderSetCookie' = LE.decodeUtf8 . toLazyByteString . renderSetCookie
@@ -414,8 +416,7 @@ toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [L.to
 withBearerToken :: MonadIO m
                 => (B.ByteString -> Maybe AccessGrant)
                 -> [Scope]
-                -> (AccessGrant
-                -> ActionT Except m ())
+                -> (AccessGrant -> ActionT Except m ())
                 -> ActionT Except m ()
 withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHeader $ \h ->
     case bearerToken h of

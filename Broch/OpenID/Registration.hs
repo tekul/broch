@@ -68,7 +68,7 @@ makeClient cid csec md = Client
     , redirectURIs = redirect_uris md
     , accessTokenValidity  = 24 * 60 * 60
     , refreshTokenValidity = 30 * 24 * 60 * 60
-    , allowedScope = [OpenID]
+    , allowedScope = [OpenID, Profile, Email, Address, Phone]
     , autoapprove = False
     }
 
