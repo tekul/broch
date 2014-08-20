@@ -9,7 +9,6 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as B
 import Data.Aeson (decode)
 import Data.Int (Int64)
-import Data.Maybe (fromJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -84,7 +83,9 @@ tokenRequest :: ClientId -> Text -> Text -> GrantType -> Text -> WaiTest AccessT
 tokenRequest cid secret redirectUri gt code = do
     basicAuth cid secret
     post "/oauth/token" [("client_id", cid), ("grant_type", grantTypeName gt), ("redirect_uri", redirectUri), ("code", code)]
-    withResponse $ return . fromJust . decode . simpleBody
+    withResponse $ \r -> case decode $ simpleBody r of
+        Nothing  -> liftIO $ print r >> (fail $ "Failed to JSON decode response body")
+        Just atr -> return atr
 
 testapp = createSqlitePool ":memory:" 2 >>= testBroch "http://testapp" >>= return -- . logStdoutDev
 

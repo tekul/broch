@@ -34,7 +34,7 @@ import           Jose.Jwa
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import qualified Text.Blaze.Html5 as H
-import           Text.Blaze.Html5.Attributes hiding (scope)
+import           Text.Blaze.Html5.Attributes hiding (scope, id)
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Web.ClientSession as CS
 import           Web.Cookie as Cookie
@@ -112,7 +112,7 @@ handleEx e = do
     request >>= debug . W.rawQueryString
     body >>= debug
     debug e
-    status internalServerError500 >> (text $ L.pack $ show e)  --"Whoops! Something went wrong!"
+    status internalServerError500 >> text (L.pack $ show e)  --"Whoops! Something went wrong!"
 
 testBroch :: T.Text -> ConnectionPool -> IO W.Application
 testBroch issuer pool = do
@@ -312,22 +312,22 @@ testBroch issuer pool = do
                     redirectFull $ TE.decodeUtf8 $ B.concat ["/approval", query]
 
     tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = do
-        client <- basicAuthClient getClient
-        case client of
-            Left (st, err) -> status st >> text err
-            Right c        -> do
-                env  <- fmap toMap params
-                now  <- liftIO getPOSIXTime
-                resp <- processTokenRequest env c now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
-                case resp of
-                    Left bad -> status badRequest400 >> json (toJSON bad)
-                    Right tr -> json $ toJSON tr
+        r <- request
+        let authzHdr = lookup hAuthorization $ W.requestHeaders r
+        env  <- fmap toMap params
+        now  <- liftIO getPOSIXTime
+        resp <- processTokenRequest env authzHdr getClient now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+        case resp of
+            Right tr              -> json $ toJSON tr
+            Left InvalidClient401 -> status unauthorized401 >> setHeader "WWW-Authenticate" "Basic" >> json (toJSON InvalidClient401)
+            Left bad              -> status badRequest400   >> json (toJSON bad)
 
     getAuthId key = do
         uid <- getEncryptedCookie key "bsid"
         case uid of
             Just u  -> return (TE.decodeUtf8 u)
             Nothing -> cacheLocation key >> redirectFull "/login"
+
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
@@ -418,8 +418,9 @@ withBearerToken :: MonadIO m
                 -> [Scope]
                 -> (AccessGrant -> ActionT Except m ())
                 -> ActionT Except m ()
-withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHeader $ \h ->
-    case bearerToken h of
+withBearerToken decodeToken requiredScope f = do
+    r <- request
+    case bearerToken r of
         Nothing -> unauthorized
         Just t  -> case decodeToken t of
             Just g@(AccessGrant _ _ _ scp (TokenTime ex)) -> do
@@ -431,56 +432,10 @@ withBearerToken decodeToken requiredScope f = withAuthorizationHeader wwwAuthHea
 
             Nothing -> unauthorized
   where
-    unauthorized = status unauthorized401 >> setHeader "WWW-Authenticate" wwwAuthHeader
-    wwwAuthHeader = "Bearer"
-    bearerToken h = case B.split ' ' h of
-                       ["Bearer", t] -> Just t
-                       _             -> Nothing
-
-
-basicAuthClient :: (ScottyError e, Monad m)
-                => (T.Text -> ActionT e m (Maybe Client))
-                -> ActionT e m (Either (Status, L.Text) Client)
-basicAuthClient getClient = do
-    r <- request
-    case basicAuthCredentials r of
-        Left  msg           -> return $ Left (unauthorized401, msg)
-        Right (cid, secret) -> do
-            client <- getClient cid
-            return $ maybe (Left (forbidden403, "Authentication failed")) Right $ client >>= validateSecret secret
-
--- TODO: Use hashed secrets
-validateSecret :: T.Text -> Client -> Maybe Client
-validateSecret secret client = clientSecret client >>= \s ->
-                                  if secret == s
-                                  then Just client
-                                  else Nothing
-
--- | Extract the Basic authentication credentials from a WAI request.
--- Returns an error message if the header is missing or cannot be decoded.
-basicAuthCredentials :: W.Request -> Either Text (T.Text, T.Text)
-basicAuthCredentials r = do
-    authzHdr <- maybe (Left "Authentication required") return $ lookup hAuthorization $ W.requestHeaders r
-    maybe (Left "Invalid authorization header") return $ decodeHeader authzHdr
-  where
-    decodeHeader h = case B.split ' ' h of
-                       ["Basic", b] -> either (const Nothing) creds $ B64.decode b
-                       _            -> Nothing
-    creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
-                 Left _       -> Nothing
-                 Right (u, p) -> if T.length p == 0
-                                 then Nothing
-                                 else Just (u, T.tail p)
-
-
-withAuthorizationHeader :: (ScottyError e, Monad m)
-                        => L.Text
-                        -> (B.ByteString -> ActionT e m ())
-                        -> ActionT e m ()
-withAuthorizationHeader authResponseHdr f = do
-    r <- request
-    let h = lookup hAuthorization $ W.requestHeaders r
-    case h of Nothing -> status unauthorized401 >> setHeader "WWW-Authenticate" authResponseHdr
-              Just a  -> f a
-
+    unauthorized = raise $ WWWAuthenticate "Bearer"
+    bearerToken r = do
+        h <- lookup hAuthorization $ W.requestHeaders r
+        case B.split ' ' h of
+            ["Bearer", t] -> Just t
+            _             -> Nothing
 

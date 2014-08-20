@@ -5,6 +5,8 @@ module Broch.OAuth2.TokenSpec where
 
 import Control.Applicative ((<$>))
 import Control.Monad.Identity
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base64 as B64
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text (Text)
@@ -27,7 +29,11 @@ spec = grantTypeParameterErrorsSpec >> authorizationCodeTokenRequestSpec
 
 success t = Right $ AccessTokenResponse t Bearer 987 Nothing (Just "refreshtoken") Nothing
 
-doToken env client = runIdentity $ processTokenRequest env client now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+doToken env client = runIdentity $ processTokenRequest env authzHdr (\_ -> return $ Just client) now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+  where
+    authzHdr = case clientSecret client of
+        Nothing  -> Nothing
+        Just sec -> Just $ B.concat ["Basic ", B64.encode $ TE.encodeUtf8 $ T.concat [clientId client, ":", sec]]
 
 
 grantTypeParameterErrorsSpec =
@@ -42,7 +48,7 @@ grantTypeParameterErrorsSpec =
         doToken (Map.singleton "grant_type" ["authorization_code", "authorization_code"]) appClient @?= (Left $ InvalidRequest "Duplicate grant_type")
 
       it "returns invalid_grant for implicit grant" $
-        doToken (Map.singleton "grant_type" ["implicit"]) jsClient @?= (Left $ InvalidGrant "Implicit grant is not supported by the token endpoint")
+        doToken (Map.singleton "grant_type" ["implicit"]) allClient @?= (Left $ InvalidGrant "Implicit grant is not supported by the token endpoint")
 
       it "returns unsupported_grant_type for unknown grant type" $
         doToken (Map.singleton "grant_type" ["weird_unknown"]) appClient @?= Left UnsupportedGrantType

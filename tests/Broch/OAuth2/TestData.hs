@@ -25,8 +25,9 @@ authenticateResourceOwner username password
 
 appClient   = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] ["http://app2", "http://app"] 99 99 appClientScope False
 adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] [] 99 99 adminClientScope False
-roClient    = Client "ro" Nothing [ResourceOwner] [] 99 99 appClientScope False
+roClient    = Client "ro" (Just "rosecret") [ResourceOwner] [] 99 99 appClientScope False
 jsClient    = Client "js" Nothing [Implicit] [] 99 99 jsClientScope False
+allClient   = Client "all" (Just "allsecret") [AuthorizationCode, ClientCredentials, Implicit, ResourceOwner] [] 99 99 appClientScope False
 
 appClientScope   = map CustomScope ["scope1", "scope2", "scope3"]
 adminClientScope = appClientScope ++ [CustomScope "admin"]

@@ -18,6 +18,8 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Map (Map)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Base64 as B64
 import Data.Text (Text)
 import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX (POSIXTime)
@@ -67,28 +69,32 @@ instance FromJSON AccessTokenResponse where
                             <*> fmap (fmap TE.encodeUtf8) (v .:? "scope")
 
 -- See http://tools.ietf.org/html/rfc6749#section-5.2 for error handling
-data TokenError = InvalidRequest Text        |
-                  InvalidClient              |
-                  InvalidGrant Text          |
-                  UnauthorizedClient Text    |
-                  UnsupportedGrantType       |
-                  InvalidScope Text
+data TokenError = InvalidRequest Text
+                | InvalidClient
+                | InvalidClient401
+                | InvalidGrant Text
+                | UnauthorizedClient Text
+                | UnsupportedGrantType
+                | InvalidScope Text
                   deriving (Show, Eq)
 
 instance ToJSON TokenError where
     toJSON e = object $ ("error" .= err) : maybe [] (\m -> ["error_description" .= m]) desc
       where
+        invalidClient = ("invalid_client", Nothing)
         (err, desc) = case e of
-                      InvalidRequest m -> ("invalid_request" :: Text, Just m)
-                      InvalidClient    -> ("invalid_client", Nothing)
-                      InvalidGrant   m -> ("invalid_grant",  Just m)
-                      UnauthorizedClient m -> ("unauthorized_client", Just m)
-                      UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
-                      InvalidScope m       -> ("invalid_scope", Just m)
+            InvalidRequest m -> ("invalid_request" :: Text, Just m)
+            InvalidClient    -> invalidClient
+            InvalidClient401 -> invalidClient
+            InvalidGrant   m -> ("invalid_grant",  Just m)
+            UnauthorizedClient m -> ("unauthorized_client", Just m)
+            UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
+            InvalidScope m       -> ("invalid_scope", Just m)
 
 processTokenRequest :: (Monad m)
                     => Map Text [Text]
-                    -> Client
+                    -> Maybe ByteString
+                    -> LoadClient m
                     -> POSIXTime
                     -> LoadAuthorization m
                     -> AuthenticateResourceOwner m
@@ -96,8 +102,9 @@ processTokenRequest :: (Monad m)
                     -> CreateIdToken m
                     -> DecodeRefreshToken m
                     -> m (Either TokenError AccessTokenResponse)
-processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runEitherT $ do
-    grantType <- getGrantType
+processTokenRequest env authzHeader getClient now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runEitherT $ do
+    client    <- authenticateClient
+    grantType <- getGrantType client
     (!uid, !idt, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam env "code"
@@ -112,13 +119,13 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             return (Just usr, idt, AuthorizationCode, scp)
 
         ClientCredentials -> do
-            scp <- getClientScope
+            scp <- getClientScope client
             return (Nothing, Nothing, ClientCredentials, scp)
 
         ResourceOwner -> do
             username <- requireParam env "username"
             password <- requireParam env "password"
-            s <- getResourceOwnerScope
+            s <- getResourceOwnerScope client
             user <- lift $ authenticateResourceOwner username password
             case user of
                 Nothing -> left $ InvalidGrant "authentication failed"
@@ -149,14 +156,14 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
   where
     checkExpiry (TokenTime t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
 
-    getGrantType = do
+    getGrantType client = do
         gt <- requireParam env "grant_type"
         case lookup gt grantTypes of
             Nothing -> left UnsupportedGrantType
             Just g  -> if g `elem` authorizedGrantTypes client
                        then right g
                        else left $ UnauthorizedClient $ T.append "Client is not authorized to use grant: " gt
-    getClientScope = do
+    getClientScope client = do
         mScope <- getRequestedScope
         either (left . InvalidScope) right $ I.checkClientScope client mScope
 
@@ -167,6 +174,50 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
         either (left . InvalidScope) right $ I.checkRequestedScope existingScope mScope
 
     getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap (map scopeFromName . T.splitOn " ") ms
+
+    -- | Authenticate the client using one of the methods defined in
+    -- http://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
+    -- On failure an invalid_client error is returned with a 400 error
+    -- code, or 401 if the client used the Authorization header.
+    -- See http://tools.ietf.org/html/rfc6749#section-5.2
+    authenticateClient = do
+        clid  <- maybeParam env "client_id"
+        secret    <- maybeParam env "client_secret"
+        assertion <- maybeParam env "client_assertion"
+        aType     <- maybeParam env "assertion_type"
+
+        case (authzHeader, clid, secret, assertion, aType) of
+            (Just h,  _, Nothing, Nothing, Nothing)    -> basicAuth h
+            (Nothing, Just cid, Just sec, Nothing, Nothing) -> error "client secret post not yet supported"
+            (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> error "client assertion not yet supported" -- decode claims, get client id, check signature
+            (Nothing, _, Nothing, Nothing, Nothing) -> left InvalidClient
+            _                                       -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
+
+    basicAuth h    = do
+        (cid, secret) <- decodeHeader h
+        -- TODO: Fixed delay based on cid and secret
+        client        <- lift (getClient cid)
+        maybe basicFailed right $ client >>= validateSecret secret
+
+
+    decodeHeader :: (Monad m1) => ByteString -> EitherT TokenError m1 (Text, Text)
+    decodeHeader h = case B.split ' ' h of
+                       ["Basic", b] -> either (\_ -> basicFailed) creds $ B64.decode b
+                       _            -> basicFailed
+
+    creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
+                 Left _       -> basicFailed
+                 Right (u, p) -> if T.length p == 0
+                                 then basicFailed
+                                 else right (u, T.tail p)
+
+    validateSecret secret client = clientSecret client >>= \s ->
+                                      if secret == s
+                                      then Just client
+                                      else Nothing
+
+    basicFailed :: Monad m => EitherT TokenError m a
+    basicFailed = left InvalidClient401
 
 validateAuthorization :: (Monad m) => Authorization
                       -> Client
