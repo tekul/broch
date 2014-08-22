@@ -96,7 +96,8 @@ Test-suite tests
                     , cprng-aes
                     , http-types
                     , mtl
-                    , network
+                    , network >= 2.6
+                    , network-uri >= 2.6
                     , persistent
                     , persistent-sqlite
                     , text
