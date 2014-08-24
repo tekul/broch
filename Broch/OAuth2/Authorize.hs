@@ -7,14 +7,13 @@ module Broch.OAuth2.Authorize
     )
 where
 
+import Control.Error
 import Control.Monad (liftM, liftM2, when, unless)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Either
+import Control.Monad.Trans (lift)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.List (sort)
 import Data.Time.Clock.POSIX
-import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 
 import qualified Data.ByteString.Base16 as Hex
@@ -66,7 +65,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
   where
     authorizationResponseURL client uri =
         case getAuthorizationRequest client of
-            Left err -> return err
+            Left er -> return er
             Right (state, responseType, requestedScope, nonce) -> do
                 scope <- resourceOwnerApproval user client requestedScope now
                 let separator         = case responseType of
@@ -129,11 +128,11 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                              Right Code -> '?'
                              Right _    -> '#'
                              Left  _    -> '?' -- TODO: Use client grant/response types
-            err e      = T.cons separator $ errorURL st e
+            errr e     = T.cons separator $ errorURL st e
 
         -- All that was just to work out how to handle the error.
         -- Now check the actual parameter values.
-        either (Left . err) return $ do
+        either (Left . errr) return $ do
             state          <- either (Left . InvalidRequest) return stateParam
             responseType   <- getResponseType
             checkResponseType client responseType

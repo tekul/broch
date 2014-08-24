@@ -9,23 +9,21 @@ module Broch.OAuth2.Token
 where
 
 import Control.Applicative
-import Data.Monoid
+import Control.Error
+import Control.Monad.Trans (lift)
 import Control.Monad (when)
-import Control.Monad.Error (lift)
-import Control.Monad.Trans.Either
-
 import Data.Aeson
 import Data.Aeson.Types (Parser)
-import Data.Map (Map)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Base64 as B64
+import Data.Map (Map)
+import Data.Monoid
 import Data.Text (Text)
-import Data.Time (NominalDiffTime)
-import Data.Time.Clock.POSIX (POSIXTime)
-
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time (NominalDiffTime)
+import Data.Time.Clock.POSIX (POSIXTime)
 
 import Broch.Model
 import qualified Broch.OAuth2.Internal as I
@@ -79,10 +77,10 @@ data TokenError = InvalidRequest Text
                   deriving (Show, Eq)
 
 instance ToJSON TokenError where
-    toJSON e = object $ ("error" .= err) : maybe [] (\m -> ["error_description" .= m]) desc
+    toJSON e = object $ ("error" .= errr) : maybe [] (\m -> ["error_description" .= m]) desc
       where
         invalidClient = ("invalid_client", Nothing)
-        (err, desc) = case e of
+        (errr, desc) = case e of
             InvalidRequest m -> ("invalid_request" :: Text, Just m)
             InvalidClient    -> invalidClient
             InvalidClient401 -> invalidClient
@@ -107,9 +105,9 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
     grantType <- getGrantType client
     (!uid, !idt, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
-            code  <- requireParam env "code"
+            code  <- requireParam "code"
             authz <- lift (getAuthorization code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
-            mURI  <- maybeParam env "redirect_uri"
+            mURI  <- maybeParam "redirect_uri"
             validateAuthorization authz client now mURI
             let scp = authzScope authz
                 usr = authzSubject authz
@@ -123,8 +121,8 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
             return (Nothing, Nothing, ClientCredentials, scp)
 
         ResourceOwner -> do
-            username <- requireParam env "username"
-            password <- requireParam env "password"
+            username <- requireParam "username"
+            password <- requireParam "password"
             s <- getResourceOwnerScope client
             user <- lift $ authenticateResourceOwner username password
             case user of
@@ -132,7 +130,7 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
                 _       -> return (user, Nothing, ResourceOwner, s)
 
         RefreshToken -> do
-            rt <- requireParam env "refresh_token"
+            rt <- requireParam "refresh_token"
             AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
             scp <- getRefreshScope gs
             checkExpiry gexp
@@ -157,7 +155,7 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
     checkExpiry (TokenTime t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
 
     getGrantType client = do
-        gt <- requireParam env "grant_type"
+        gt <- requireParam "grant_type"
         case lookup gt grantTypes of
             Nothing -> left UnsupportedGrantType
             Just g  -> if g `elem` authorizedGrantTypes client
@@ -173,7 +171,7 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         mScope <- getRequestedScope
         either (left . InvalidScope) right $ I.checkRequestedScope existingScope mScope
 
-    getRequestedScope = maybeParam env "scope" >>= \ms -> return $ fmap (map scopeFromName . T.splitOn " ") ms
+    getRequestedScope = maybeParam "scope" >>= \ms -> return $ fmap (map scopeFromName . T.splitOn " ") ms
 
     -- | Authenticate the client using one of the methods defined in
     -- http://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
@@ -181,13 +179,13 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
     -- code, or 401 if the client used the Authorization header.
     -- See http://tools.ietf.org/html/rfc6749#section-5.2
     authenticateClient = do
-        clid  <- maybeParam env "client_id"
-        secret    <- maybeParam env "client_secret"
-        assertion <- maybeParam env "client_assertion"
-        aType     <- maybeParam env "assertion_type"
+        clid      <- maybeParam "client_id"
+        secret    <- maybeParam "client_secret"
+        assertion <- maybeParam "client_assertion"
+        aType     <- maybeParam "assertion_type"
 
         case (authzHeader, clid, secret, assertion, aType) of
-            (Just h,  _, Nothing, Nothing, Nothing)    -> basicAuth h
+            (Just h,  _, Nothing, Nothing, Nothing)         -> basicAuth h
             (Nothing, Just cid, Just sec, Nothing, Nothing) -> error "client secret post not yet supported"
             (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> error "client assertion not yet supported" -- decode claims, get client id, check signature
             (Nothing, _, Nothing, Nothing, Nothing) -> left InvalidClient
@@ -199,8 +197,6 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         client        <- lift (getClient cid)
         maybe basicFailed right $ client >>= validateSecret secret
 
-
-    decodeHeader :: (Monad m1) => ByteString -> EitherT TokenError m1 (Text, Text)
     decodeHeader h = case B.split ' ' h of
                        ["Basic", b] -> either (\_ -> basicFailed) creds $ B64.decode b
                        _            -> basicFailed
@@ -219,6 +215,10 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
     basicFailed :: Monad m => EitherT TokenError m a
     basicFailed = left InvalidClient401
 
+    requireParam name = eitherParam I.requireParam name
+    maybeParam   name = eitherParam I.maybeParam   name
+    eitherParam  f n  = either (left . InvalidRequest) right $ f env n
+
 validateAuthorization :: (Monad m) => Authorization
                       -> Client
                       -> NominalDiffTime
@@ -235,13 +235,4 @@ validateAuthorization (Authorization _ issuedTo (TokenTime issuedAt) _ _ authzUR
 authCodeTTL :: NominalDiffTime
 authCodeTTL = 300
 
-requireParam :: (Monad m) => Map Text [Text] -> Text -> EitherT TokenError m Text
-requireParam env name = case I.requireParam env name of
-                          Right p -> right p
-                          Left  m -> left $ InvalidRequest m
-
-maybeParam :: (Monad m) => Map Text [Text] -> Text -> EitherT TokenError m (Maybe Text)
-maybeParam env name = case I.maybeParam env name of
-                          Right p -> right p
-                          Left  m -> left $ InvalidRequest m
 
