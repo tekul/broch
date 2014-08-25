@@ -33,7 +33,16 @@ doToken env client = runIdentity $ processTokenRequest env authzHdr (\_ -> retur
   where
     authzHdr = case clientSecret client of
         Nothing  -> Nothing
-        Just sec -> Just $ B.concat ["Basic ", B64.encode $ TE.encodeUtf8 $ T.concat [clientId client, ":", sec]]
+        Just sec -> basicHeader (clientId client) sec
+
+basicHeader cid secret = Just $ B.concat ["Basic ", B64.encode $ TE.encodeUtf8 $ T.concat [cid, ":", secret]]
+
+doTokenAuth authzHdr env = runIdentity $ processTokenRequest env authzHdr loadClient now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+  where
+    loadClient :: Text -> Identity (Maybe Client)
+    loadClient cid = case cid of
+        "app" -> return $ Just appClient
+        _     -> return Nothing
 
 
 grantTypeParameterErrorsSpec =
@@ -85,6 +94,33 @@ authorizationCodeTokenRequestSpec =
         let env = Map.insert "code" ["whatcode"] authCodeEnv
         doToken env appClient @?= (Left $ InvalidGrant "Invalid authorization code")
 
+      it "returns invalid_request when mixing Basic and client_secret_post authentication" $ do
+        let env = Map.insert "client_secret" ["appsecret"] authCodeEnv
+        doToken env appClient @?= (Left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data")
+
+      it "returns invalid_client when client doesn't exist" $ do
+        let env = Map.fromList [("client_id", ["badclient"]), ("client_secret", ["whocares"])] `Map.union` authCodeEnv
+        doTokenAuth Nothing env @?= Left InvalidClient
+
+      it "returns invalid_client 401 when Basic auth client secret is wrong" $ do
+        doTokenAuth (basicHeader "app" "wrong") authCodeEnv @?= Left InvalidClient401
+
+      it "returns invalid_client 401 when Basic auth client secret is empty" $ do
+        doTokenAuth (basicHeader "app" "") authCodeEnv @?= Left InvalidClient401
+
+      it "returns invalid_client 401 when Basic header is missing colon" $ do
+        doTokenAuth (Just $ B.concat ["Basic ", B64.encode "appappsecret"]) authCodeEnv @?= Left InvalidClient401
+
+      it "returns invalid_client 401 when Basic header is not base64 encoded" $ do
+        doTokenAuth (Just $ B.concat ["Basic ", "app:appsecret"]) authCodeEnv @?= Left InvalidClient401
+
+      it "returns invalid_client when no auth data is supplied" $ do
+        let env = Map.insert "client_id" ["app"] authCodeEnv
+        doTokenAuth Nothing env @?= Left InvalidClient
+
+      it "returns invalid_client when posted client secret is wrong" $ do
+        let env = Map.fromList [("client_id", ["app"]), ("client_secret", ["wrong"])] `Map.union` authCodeEnv
+        doTokenAuth Nothing env @?= Left InvalidClient
 
 authCodeEnv = Map.insert "code"         ["catcode"]    $
               Map.insert "redirect_uri" ["http://app"] $ createEnv AuthorizationCode
