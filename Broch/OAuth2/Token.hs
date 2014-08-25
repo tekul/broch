@@ -14,6 +14,7 @@ import Control.Monad.Trans (lift)
 import Control.Monad (when)
 import Data.Aeson
 import Data.Aeson.Types (Parser)
+import Data.Byteable (constEqBytes)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Base64 as B64
@@ -185,38 +186,39 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         aType     <- maybeParam "assertion_type"
 
         case (authzHeader, clid, secret, assertion, aType) of
-            (Just h,  _, Nothing, Nothing, Nothing)         -> basicAuth h
-            (Nothing, Just cid, Just sec, Nothing, Nothing) -> error "client secret post not yet supported"
+            (Just h,  _, Nothing, Nothing, Nothing)         -> noteT InvalidClient401 $ basicAuth h
+            (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT InvalidClient    $ checkClientSecret cid sec
+
             (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> error "client assertion not yet supported" -- decode claims, get client id, check signature
             (Nothing, _, Nothing, Nothing, Nothing) -> left InvalidClient
             _                                       -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
 
     basicAuth h    = do
-        (cid, secret) <- decodeHeader h
-        -- TODO: Fixed delay based on cid and secret
-        client        <- lift (getClient cid)
-        maybe basicFailed right $ client >>= validateSecret secret
+        (cid, secret) <- hoistMaybe $ decodeHeader h
+        checkClientSecret cid secret
 
     decodeHeader h = case B.split ' ' h of
-                       ["Basic", b] -> either (\_ -> basicFailed) creds $ B64.decode b
-                       _            -> basicFailed
+                       ["Basic", b] -> either (const Nothing) creds $ B64.decode b
+                       _            -> Nothing
 
     creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
-                 Left _       -> basicFailed
+                 Left _       -> Nothing
                  Right (u, p) -> if T.length p == 0
-                                 then basicFailed
-                                 else right (u, T.tail p)
+                                 then Nothing
+                                 else Just (u, T.tail p)
 
-    validateSecret secret client = clientSecret client >>= \s ->
-                                      if secret == s
-                                      then Just client
-                                      else Nothing
+    checkClientSecret cid secret = do
+        -- TODO: Fixed delay based on cid and secret
+        client <- lift $ getClient cid
+        hoistMaybe $ case client of
+            Nothing -> Nothing
+            Just c  -> clientSecret c >>= \s ->
+                if constEqBytes (TE.encodeUtf8 s) (TE.encodeUtf8 secret)
+                    then Just c
+                    else Nothing
 
-    basicFailed :: Monad m => EitherT TokenError m a
-    basicFailed = left InvalidClient401
-
-    requireParam name = eitherParam I.requireParam name
-    maybeParam   name = eitherParam I.maybeParam   name
+    requireParam = eitherParam I.requireParam
+    maybeParam   = eitherParam I.maybeParam
     eitherParam  f n  = either (left . InvalidRequest) right $ f env n
 
 validateAuthorization :: (Monad m) => Authorization

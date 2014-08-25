@@ -41,6 +41,7 @@ Library
                     , blaze-html >= 0.7
                     , bcrypt >= 0.0.4
                     , bytestring >= 0.10
+                    , byteable   >= 0.1.1
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
