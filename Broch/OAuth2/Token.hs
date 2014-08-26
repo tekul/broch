@@ -197,18 +197,18 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         return client
 
     basicAuth h    = do
-        (cid, secret) <- hoistMaybe $ decodeHeader h
+        (cid, secret) <- hoistMaybe decodedHeader
         checkClientSecret cid secret
+      where
+        decodedHeader = case B.split ' ' h of
+            ["Basic", b] -> join $ creds <$> (hush $ B64.decode b)
+            _            -> Nothing
 
-    decodeHeader h = case B.split ' ' h of
-                       ["Basic", b] -> either (const Nothing) creds $ B64.decode b
-                       _            -> Nothing
-
-    creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
-                 Left _       -> Nothing
-                 Right (u, p) -> if T.length p == 0
-                                 then Nothing
-                                 else Just (u, T.tail p)
+        creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
+            Right (u, p) -> if T.length p == 0
+                                then Nothing
+                                else Just (u, T.tail p)
+            _            -> Nothing
 
     checkClientSecret cid secret = do
         -- TODO: Fixed delay based on cid and secret
