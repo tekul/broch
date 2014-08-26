@@ -11,7 +11,7 @@ where
 import Control.Applicative
 import Control.Error
 import Control.Monad.Trans (lift)
-import Control.Monad (when)
+import Control.Monad (join, when, unless)
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.Byteable (constEqBytes)
@@ -185,13 +185,16 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         assertion <- maybeParam "client_assertion"
         aType     <- maybeParam "assertion_type"
 
-        case (authzHeader, clid, secret, assertion, aType) of
+        client <- case (authzHeader, clid, secret, assertion, aType) of
             (Just h,  _, Nothing, Nothing, Nothing)         -> noteT InvalidClient401 $ basicAuth h
             (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT InvalidClient    $ checkClientSecret cid sec
 
             (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> error "client assertion not yet supported" -- decode claims, get client id, check signature
             (Nothing, _, Nothing, Nothing, Nothing) -> left InvalidClient
             _                                       -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
+        checkClientId clid client
+
+        return client
 
     basicAuth h    = do
         (cid, secret) <- hoistMaybe $ decodeHeader h
@@ -216,6 +219,10 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
                 if constEqBytes (TE.encodeUtf8 s) (TE.encodeUtf8 secret)
                     then Just c
                     else Nothing
+
+    checkClientId cid client = case cid of
+        Nothing -> return ()
+        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter is invalid"
 
     requireParam = eitherParam I.requireParam
     maybeParam   = eitherParam I.maybeParam
