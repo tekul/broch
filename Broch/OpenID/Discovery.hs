@@ -31,7 +31,7 @@ data OpenIDConfiguration = OpenIDConfiguration
     , request_object_signing_alg_values_supported :: Maybe [JwsAlg]
     , request_object_encryption_alg_values_supported :: Maybe [JweAlg]
     , request_object_encryption_enc_values_supported :: Maybe [Enc]
-    , token_endpoint_auth_methods_supported :: [Text]
+    , token_endpoint_auth_methods_supported :: [ClientAuthMethod]
     , token_endpoint_auth_signing_alg_values_supported :: Maybe [Alg]
     , display_values_supported :: Maybe [Text]
     , claim_types_supported :: Maybe [Text]
@@ -77,7 +77,7 @@ defaultOpenIDConfiguration issuerUrl = OpenIDConfiguration
     , request_object_signing_alg_values_supported = Nothing
     , request_object_encryption_alg_values_supported = Nothing
     , request_object_encryption_enc_values_supported = Nothing
-    , token_endpoint_auth_methods_supported = ["client_secret_basic"] -- TODO: Create type
+    , token_endpoint_auth_methods_supported = [ClientSecretBasic, ClientSecretPost, ClientSecretJwt]
     , token_endpoint_auth_signing_alg_values_supported = Nothing
     , display_values_supported = Nothing
     , claim_types_supported = Nothing

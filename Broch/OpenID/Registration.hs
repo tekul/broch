@@ -70,6 +70,8 @@ makeClient cid csec md = Client
     , refreshTokenValidity = 30 * 24 * 60 * 60
     , allowedScope = [OpenID, Profile, Email, Address, Phone]
     , autoapprove = False
+    , tokenEndpointAuthMethod = fromMaybe ClientSecretBasic $ token_endpoint_auth_method md
+    , tokenEndpointAuthAlg    = token_endpoint_auth_signing_alg md
     }
 
 instance FromJSON ClientMetaData

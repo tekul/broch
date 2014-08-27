@@ -22,8 +22,8 @@ import           Data.ByteString.Lazy (toStrict)
 import           Data.Maybe (fromJust)
 import           Database.Persist (PersistUnique, PersistStore, insert, getBy, delete, deleteBy, Entity(..))
 import           Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
-
 import           Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import           Data.Time.Clock.POSIX
 import           Data.Time.Clock
@@ -61,6 +61,8 @@ Client sql=oauth2_client
   refreshTokenValidity Int
   allowedScope   [Text]
   autoapprove    Bool
+  tokenEndpointAuthMethod Text
+  tokenEndpointAuthAlg Text Maybe
   UniqueClientId clientId
   deriving Show
 
@@ -127,8 +129,8 @@ deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 createClient :: (PersistStore m, Functor m)
              => M.Client
              -> m ()
-createClient (M.Client cid ms gs uris atv rtv scps appr) =
-    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr
+createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg) =
+    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg)
 
 getClientById :: PersistUnique m
               => Text
@@ -137,9 +139,12 @@ getClientById cid = do
     record <- getBy $ UniqueClientId cid
     case record of
         Nothing -> return Nothing
-        Just (Entity _ (Client _ ms gs uris atv rtv scps appr)) -> do
-            let grants = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
-            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr
+        Just (Entity _ (Client _ ms gs uris atv rtv scps appr am aalg)) -> do
+            let grants     = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
+                authMethod = fromText am
+                authAlg    = fmap fromText aalg
+
+            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg
 
 createUser :: (PersistStore m, Functor m)
            => Text
@@ -167,4 +172,8 @@ getUserByUsername name = do
         Nothing -> return Nothing
         Just (Entity _ (User uid _ password _)) -> return $ Just (uid, password)
 
+toText :: Show a => a -> Text
+toText = T.pack . show
 
+fromText :: Read a => Text -> a
+fromText = read . T.unpack

@@ -174,22 +174,27 @@ grantTypeName :: GrantType -> Text
 grantTypeName gt = fromJust $ lookup gt grantTypeNames
 
 data ClientAuthMethod = ClientSecretBasic
+                      | ClientSecretPost
                       | ClientSecretJwt
                       | PrivateKeyJwt
-                        deriving (Eq, Show)
+                      | ClientAuthNone
+                        deriving (Eq, Show, Read)
 
 instance FromJSON ClientAuthMethod where
     parseJSON = withText "ClientAuthMethod" $ \t -> case t of
         "client_secret_basic" -> pure ClientSecretBasic
+        "client_secret_post"  -> pure ClientSecretPost
         "client_secret_jwt"   -> pure ClientSecretJwt
+        "none"                -> pure ClientAuthNone
         _                     -> fail "Unknown or unsupported client auth method"
 
 instance ToJSON ClientAuthMethod where
     toJSON a = case a of
         ClientSecretBasic -> String "client_secret_basic"
+        ClientSecretPost  -> String "client_secret_post"
         ClientSecretJwt   -> String "client_secret_jwt"
         PrivateKeyJwt     -> String "private_secret_jwt"
-
+        ClientAuthNone    -> String "none"
 
 data Client = Client
     { clientId :: ClientId
@@ -200,6 +205,8 @@ data Client = Client
     , refreshTokenValidity :: Int
     , allowedScope :: [Scope]
     , autoapprove :: Bool
+    , tokenEndpointAuthMethod :: ClientAuthMethod
+    , tokenEndpointAuthAlg    :: Maybe JwsAlg
     }
 
 data ResponseType = Code

@@ -26,6 +26,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX (POSIXTime)
 import Jose.Jwt
+import Jose.Jws
 
 import Broch.Model
 import qualified Broch.OAuth2.Internal as I
@@ -91,7 +92,7 @@ instance ToJSON TokenError where
             UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
             InvalidScope m       -> ("invalid_scope", Just m)
 
-processTokenRequest :: (Monad m)
+processTokenRequest :: (Applicative m, Monad m)
                     => Map Text [Text]
                     -> Maybe ByteString
                     -> LoadClient m
@@ -184,18 +185,42 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         clid      <- maybeParam "client_id"
         secret    <- maybeParam "client_secret"
         assertion <- maybeParam "client_assertion"
-        aType     <- maybeParam "assertion_type"
+        aType     <- maybeParam "client_assertion_type"
 
+        -- TODO: Return auth type here so it can be checked after
+        -- authenticating
         client <- case (authzHeader, clid, secret, assertion, aType) of
             (Just h,  _, Nothing, Nothing, Nothing)         -> noteT InvalidClient401 $ basicAuth h
             (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT InvalidClient    $ checkClientSecret cid sec
-
-            (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> error "client assertion not yet supported" -- decode claims, get client id, check signature
+            (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> noteT InvalidClient $ clientAssertionAuth a
             (Nothing, _, Nothing, Nothing, Nothing) -> left InvalidClient
             _                                       -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
         checkClientId clid client
 
         return client
+
+    clientAssertionAuth a = do
+        (hdr, claims)   <- hushT . hoistEither $ decodeClaims $ TE.encodeUtf8 a
+        alg <- case hdr of
+            JwsH h -> just $ jwsAlg h
+            _      -> nothing
+        cid             <- hoistMaybe $ jwtSub claims
+        -- TODO: Check audience
+        unless (jwtIss claims == Just cid) nothing
+        IntDate expiry  <- hoistMaybe $ jwtExp claims
+        unless (expiry > now) nothing
+        -- TODO: Introduce jti caching
+        client <- hoistMaybe =<< (lift $ getClient cid)
+        let authMethod = tokenEndpointAuthMethod client
+        let authAlg    = tokenEndpointAuthAlg client
+        unless (authAlg == Nothing || authAlg == Just alg) nothing
+
+        case authMethod of
+            ClientSecretJwt -> do
+                sec <- hoistMaybe $ clientSecret client
+                either (error . show) (const $ just client) $ hmacDecode (TE.encodeUtf8 sec) (TE.encodeUtf8 a)
+            PrivateKeyJwt   -> error "private_key_jwt not yet supported"
+            _               -> nothing
 
     basicAuth h    = do
         (cid, secret) <- hoistMaybe decodedHeader
@@ -223,7 +248,7 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
 
     checkClientId cid client = case cid of
         Nothing -> return ()
-        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter is invalid"
+        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter is doesn't match authentication"
 
     requireParam = eitherParam I.requireParam
     maybeParam   = eitherParam I.maybeParam
