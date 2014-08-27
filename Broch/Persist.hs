@@ -27,6 +27,7 @@ import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import           Data.Time.Clock.POSIX
 import           Data.Time.Clock
+import           Jose.Jwt (IntDate (..))
 
 import qualified Broch.Model as M
 import           Broch.Scim
@@ -94,12 +95,12 @@ getAuthorizationByCode code = do
         Nothing -> return Nothing
         Just (Entity key (AuthCode _ uid client issuedAt scope nonce uri)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (M.TokenTime $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri
+            return $ Just $ M.Authorization uid client (IntDate $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri
 
 createApproval :: (PersistStore m, Functor m)
                => M.Approval
                -> m ()
-createApproval (M.Approval uid clientId scope (M.TokenTime expires)) =
+createApproval (M.Approval uid clientId scope (IntDate expires)) =
     void $ insert $ Approval uid clientId (map M.scopeName scope) (posixSecondsToUTCTime expires)
 
 getApproval :: PersistUnique m
@@ -115,7 +116,7 @@ getApproval uid cid now = do
             let posixExpiry = utcTimeToPOSIXSeconds expiry
             if now > posixExpiry
                 then delete key >> return Nothing
-                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (M.TokenTime posixExpiry)
+                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (IntDate posixExpiry)
 
 deleteApproval :: PersistUnique m
                => Text

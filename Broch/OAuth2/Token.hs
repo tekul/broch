@@ -25,6 +25,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX (POSIXTime)
+import Jose.Jwt
 
 import Broch.Model
 import qualified Broch.OAuth2.Internal as I
@@ -153,7 +154,7 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
               }
 
   where
-    checkExpiry (TokenTime t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
+    checkExpiry (IntDate t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
 
     getGrantType client = do
         gt <- requireParam "grant_type"
@@ -233,7 +234,7 @@ validateAuthorization :: (Monad m) => Authorization
                       -> NominalDiffTime
                       -> Maybe Text
                       -> EitherT TokenError m ()
-validateAuthorization (Authorization _ issuedTo (TokenTime issuedAt) _ _ authzURI) client now mURI
+validateAuthorization (Authorization _ issuedTo (IntDate issuedAt) _ _ authzURI) client now mURI
     | mURI /= authzURI = left . InvalidGrant $ case mURI of
                                                   Nothing -> "Missing redirect_uri"
                                                   _       -> "Invalid redirect_uri"

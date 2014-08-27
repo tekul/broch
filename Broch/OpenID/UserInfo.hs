@@ -16,6 +16,7 @@ import           Data.Maybe (fromJust)
 --import           Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
+import           Jose.Jwt (IntDate(..))
 
 import qualified Broch.Model as M
 import           Broch.Scim
@@ -129,7 +130,7 @@ data UserInfo = UserInfo
     , phone_number       :: !MT
     , phone_number_verified :: !(Maybe Bool)
     , address            :: !(Maybe AddressClaims)
-    , updated_at         :: !(Maybe M.TokenTime)
+    , updated_at         :: !(Maybe IntDate)
     } deriving (Generic, Show)
 
 instance Default UserInfo

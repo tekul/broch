@@ -5,13 +5,14 @@ module Broch.Model where
 import Control.Applicative (pure)
 import Data.Aeson
 import Data.ByteString (ByteString)
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (fromJust)
 import Data.Time
 import Data.Time.Clock.POSIX
 import Data.Tuple (swap)
+import Jose.Jwt (IntDate)
+import Jose.Jwa (JwsAlg)
 
 type TokenTTL = NominalDiffTime
 
@@ -117,7 +118,7 @@ type DecodeRefreshToken m = Client
 data Authorization = Authorization
     { authzSubject :: !SubjectId
     , authzClient :: !ClientId
-    , authzAt :: !TokenTime
+    , authzAt :: !IntDate
     , authzScope :: ![Scope]
     , authzNonce :: !(Maybe Text)
     , authzRedirectUri :: !(Maybe Text)
@@ -128,14 +129,14 @@ data AccessGrant = AccessGrant
     , granteeId       :: ClientId
     , accessGrantType :: GrantType
     , grantScope      :: [Scope]
-    , grantExpiry     :: TokenTime
+    , grantExpiry     :: IntDate
     } deriving (Eq, Show)
 
 data Approval = Approval
     { approverId      :: SubjectId   -- The user
     , approvedClient  :: ClientId
     , approvedScope   :: [Scope]
-    , approvalExpiry  :: TokenTime
+    , approvalExpiry  :: IntDate
     } deriving (Show)
 
 
@@ -238,15 +239,3 @@ responseTypes =
     , ("code id_token token", CodeTokenIdToken)
     ]
 
-
-
-newtype TokenTime = TokenTime POSIXTime deriving (Show, Eq, Ord)
-
-instance FromJSON TokenTime where
-    parseJSON = withScientific "TokenTime" $ \n ->
-        let i = round n :: Int64
-        in  pure $ TokenTime (fromIntegral i)
-
-instance ToJSON TokenTime where
-    toJSON (TokenTime t) = let i = round t :: Int64
-                           in  Number $ fromIntegral i

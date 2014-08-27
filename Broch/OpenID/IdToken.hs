@@ -18,6 +18,7 @@ import Data.Time.Clock.POSIX
 import GHC.Generics
 import Jose.Jwa
 import Jose.Jws
+import Jose.Jwt (IntDate (..))
 import qualified Jose.Internal.Base64 as B64
 
 import Broch.Model
@@ -30,8 +31,8 @@ data IdToken = IdToken
     { iss :: Text
     , sub :: SubjectId
     , aud :: [Text]
-    , exp :: TokenTime
-    , iat :: TokenTime
+    , exp :: IntDate
+    , iat :: IntDate
     , nonce :: Maybe Text
     , acr :: Maybe Text
     , amr :: Maybe [Text]
@@ -68,8 +69,8 @@ createIdTokenJws a key issuer clid n subject now code accessToken =
         { iss = issuer
         , sub = subject
         , aud = [clid]
-        , exp = TokenTime $ now + idTokenTTL
-        , iat = TokenTime now
+        , exp = IntDate $ now + idTokenTTL
+        , iat = IntDate now
         , nonce = n
         , acr = Nothing
         , amr = Nothing

@@ -4,6 +4,7 @@
 module Broch.OAuth2.TestData where
 
 import Data.Time.Clock.POSIX
+import Jose.Jwt (IntDate(..))
 
 import Broch.Model
 
@@ -12,11 +13,11 @@ import Broch.Model
 now = fromIntegral (1400000000 :: Int) :: POSIXTime
 
 -- Authorization from user "cat" to app
-catAuthorization = Authorization "cat" (clientId appClient) (TokenTime $ now - 20) [] Nothing (Just "http://app")
+catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app")
 
 loadAuthorization "catcode" = return $ Just catAuthorization
 loadAuthorization "catoic"  = return $ Just $ catAuthorization {authzScope = [OpenID]}
-loadAuthorization "expired" = return $ Just $ catAuthorization {authzAt = TokenTime $ now - 301}
+loadAuthorization "expired" = return $ Just $ catAuthorization {authzAt = IntDate $ now - 301}
 loadAuthorization _         = return Nothing
 
 authenticateResourceOwner username password

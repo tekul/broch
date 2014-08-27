@@ -31,6 +31,7 @@ import           Data.UUID.V4
 import           Database.Persist.Sql (ConnectionPool, runMigrationSilent, runSqlPersistMPool)
 import           Jose.Jwk
 import           Jose.Jwa
+import           Jose.Jwt (IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import qualified Text.Blaze.Html5 as H
@@ -217,7 +218,7 @@ testBroch issuer pool = do
             expiryTxt <- param "expiry"
             scope     <- param "scope"
             let Right (expiry, _) = decimal expiryTxt
-                approval = Approval user clntId (map scopeFromName scope) (TokenTime $ fromIntegral (expiry :: Int64))
+                approval = Approval user clntId (map scopeFromName scope) (IntDate $ fromIntegral (expiry :: Int64))
             liftIO $ saveApproval approval
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
@@ -423,7 +424,7 @@ withBearerToken decodeToken requiredScope f = do
     case bearerToken r of
         Nothing -> unauthorized
         Just t  -> case decodeToken t of
-            Just g@(AccessGrant _ _ _ scp (TokenTime ex)) -> do
+            Just g@(AccessGrant _ _ _ scp (IntDate ex)) -> do
                 -- Check expiry and scope
                 now <- liftIO getPOSIXTime
                 unless (ex > now) $ raise $ InvalidToken "Token has expired"

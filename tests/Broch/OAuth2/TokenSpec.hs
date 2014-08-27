@@ -10,12 +10,12 @@ import qualified Data.ByteString.Base64 as B64
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import Jose.Jwt (IntDate(..))
 
 import Test.Hspec
 import Test.HUnit hiding (Test)
-
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 
 import Broch.Model
 import Broch.OAuth2.Token
@@ -183,7 +183,7 @@ createIdToken _ _ _ _ _ _ = return "an_id_token"
 
 decodeRefreshToken _ "refreshtoken" = return $ Just catsGrant
 decodeRefreshToken _ "notappstoken" = return $ Just $ catsGrant {granteeId = "otherapp"}
-decodeRefreshToken _ "expiredtoken" = return $ Just $ catsGrant {grantExpiry = TokenTime $ now - 10}
+decodeRefreshToken _ "expiredtoken" = return $ Just $ catsGrant {grantExpiry = IntDate $ now - 10}
 decodeRefreshToken _ _              = return Nothing
 
-catsGrant = AccessGrant (Just "cat") "app" AuthorizationCode appClientScope (TokenTime $ now + 999)
+catsGrant = AccessGrant (Just "cat") "app" AuthorizationCode appClientScope (IntDate $ now + 999)

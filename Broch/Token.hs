@@ -25,7 +25,7 @@ import qualified Crypto.PubKey.RSA as RSA
 import Broch.Model
 import Broch.Random
 import Jose.Jwa
-import Jose.Jwt (JweHeader)
+import Jose.Jwt (JweHeader, IntDate(..))
 import qualified Jose.Jwe as Jwe
 
 tokenTTL :: POSIXTime
@@ -58,14 +58,14 @@ createJwtAccessToken pubKey user client grantType scopes now = do
                  , grt = grantType
                  , cid = clientId client
                  , aud = ["nobody"]
-                 , exp = TokenTime $ now + tokenTTL
+                 , exp = IntDate $ now + tokenTTL
                  , nbf = Nothing
-                 , iat = TokenTime now
+                 , iat = IntDate now
                  , jti = Nothing
                  , scp = map scopeName scopes
                  }
       refreshClaims = claims
-                        { exp = TokenTime $ now + refreshTokenTTL
+                        { exp = IntDate $ now + refreshTokenTTL
                         , aud = ["refresh"]
                         }
 
@@ -112,9 +112,9 @@ data Claims = Claims
       , grt :: GrantType
       , cid :: Text
       , aud :: [Text]
-      , exp :: TokenTime
-      , nbf :: Maybe TokenTime
-      , iat :: TokenTime
+      , exp :: IntDate
+      , nbf :: Maybe IntDate
+      , iat :: IntDate
       , jti :: Maybe Text
       , scp :: [Text]
       } deriving (Generic)
