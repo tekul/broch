@@ -22,7 +22,7 @@ doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAutho
 gc = return "acode"
 
 createAuthorization :: CreateAuthorization Identity Text
-createAuthorization "acode" "cat" (Client "appclient" _ _ _ _ _ _ _ _ _) _ _ _ _ = return ()
+createAuthorization "acode" "cat" (Client "appclient" _ _ _ _ _ _ _ _ _ _ _) _ _ _ _ = return ()
 createAuthorization _ _ _ _ _ _ _ = fail "Invalid authz data"
 
 resourceOwnerApproval _ _ scope _= return scope

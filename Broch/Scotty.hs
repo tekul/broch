@@ -34,6 +34,7 @@ import           Jose.Jwa
 import           Jose.Jwt (IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
+import           Network.HTTP.Conduit (simpleHttp)
 import qualified Text.Blaze.Html5 as H
 import           Text.Blaze.Html5.Attributes hiding (scope, id)
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
@@ -55,9 +56,9 @@ import           Broch.Scim
 
 testClients :: [Client]
 testClients =
-    [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True ClientSecretBasic Nothing
-    , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing
-    , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False ClientSecretBasic Nothing
+    [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True ClientSecretBasic Nothing Nothing Nothing
+    , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing Nothing Nothing
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False ClientSecretBasic Nothing Nothing Nothing
     ]
 
 testUsers :: [ScimUser]
@@ -147,7 +148,14 @@ testBroch issuer pool = do
             cid <- liftIO generateCode
             sec <- liftIO generateCode
             let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
-            runDB $ BP.createClient client
+            -- retrieve client keys if URI set
+            ks <- case clientKeysUri client of
+                Just uri -> do
+                    js <- simpleHttp (T.unpack uri)
+                    debug js
+                    return $ keys <$> decode' js
+                Nothing  -> return $ clientKeys client
+            runDB $ BP.createClient client { clientKeys = ks }
             return client
 
         createIdToken uid client nons now code aToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nons uid now code aToken

@@ -12,7 +12,7 @@ import Control.Applicative
 import Control.Error
 import Control.Monad.Trans (lift)
 import Control.Monad (join, when, unless)
-import Data.Aeson
+import Data.Aeson hiding (decode)
 import Data.Aeson.Types (Parser)
 import Data.Byteable (constEqBytes)
 import Data.ByteString (ByteString)
@@ -214,12 +214,15 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
         let authMethod = tokenEndpointAuthMethod client
         let authAlg    = tokenEndpointAuthAlg client
         unless (authAlg == Nothing || authAlg == Just alg) nothing
+        let jwt        = TE.encodeUtf8 a
 
         case authMethod of
             ClientSecretJwt -> do
-                sec <- hoistMaybe $ clientSecret client
-                either (error . show) (const $ just client) $ hmacDecode (TE.encodeUtf8 sec) (TE.encodeUtf8 a)
-            PrivateKeyJwt   -> error "private_key_jwt not yet supported"
+                sec  <- hoistMaybe $ clientSecret client
+                either (const nothing) (const $ just client) $ hmacDecode (TE.encodeUtf8 sec) jwt
+            PrivateKeyJwt   -> do
+                keys <- hoistMaybe $ clientKeys client
+                either (const nothing) (const $ just client) $ decode keys jwt
             _               -> nothing
 
     basicAuth h    = do

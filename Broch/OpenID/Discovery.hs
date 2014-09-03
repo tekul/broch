@@ -32,7 +32,7 @@ data OpenIDConfiguration = OpenIDConfiguration
     , request_object_encryption_alg_values_supported :: Maybe [JweAlg]
     , request_object_encryption_enc_values_supported :: Maybe [Enc]
     , token_endpoint_auth_methods_supported :: [ClientAuthMethod]
-    , token_endpoint_auth_signing_alg_values_supported :: Maybe [Alg]
+    , token_endpoint_auth_signing_alg_values_supported :: Maybe [JwsAlg]
     , display_values_supported :: Maybe [Text]
     , claim_types_supported :: Maybe [Text]
     , claims_supported :: Maybe [Text]
@@ -68,17 +68,17 @@ defaultOpenIDConfiguration issuerUrl = OpenIDConfiguration
     , response_types_supported = [Code, Token, IdTokenResponse, TokenIdToken, CodeIdToken, CodeToken, CodeTokenIdToken]
     , accr_values_supported  = Nothing
     , subject_types_supported = ["public"]
-    , id_token_signing_alg_values_supported = [RS256, RS384, RS512, HS256, HS384, HS512]
-    , id_token_encryption_alg_values_supported = Nothing
-    , id_token_encryption_enc_values_supported = Nothing
+    , id_token_signing_alg_values_supported = sigAlgs
+    , id_token_encryption_alg_values_supported = Just jweAlgs
+    , id_token_encryption_enc_values_supported = Just encs
     , user_info_signing_alg_values_supported = Nothing
     , user_info_encryption_alg_values_supported = Nothing
     , user_info_encryption_enc_values_supported = Nothing
-    , request_object_signing_alg_values_supported = Nothing
-    , request_object_encryption_alg_values_supported = Nothing
-    , request_object_encryption_enc_values_supported = Nothing
-    , token_endpoint_auth_methods_supported = [ClientSecretBasic, ClientSecretPost, ClientSecretJwt]
-    , token_endpoint_auth_signing_alg_values_supported = Nothing
+    , request_object_signing_alg_values_supported = Just [RS256, None]
+    , request_object_encryption_alg_values_supported = Just jweAlgs
+    , request_object_encryption_enc_values_supported = Just encs
+    , token_endpoint_auth_methods_supported = [ClientSecretBasic, ClientSecretPost, ClientSecretJwt, PrivateKeyJwt]
+    , token_endpoint_auth_signing_alg_values_supported = Just sigAlgs
     , display_values_supported = Nothing
     , claim_types_supported = Nothing
     , claims_supported = Nothing
@@ -92,6 +92,9 @@ defaultOpenIDConfiguration issuerUrl = OpenIDConfiguration
     , op_tos_uri    = Nothing
     }
  where
+    sigAlgs = [RS256, RS384, RS512, HS256, HS384, HS512]
+    jweAlgs = [RSA1_5, RSA_OAEP]
+    encs    = [A128GCM, A256GCM, A128CBC_HS256, A256CBC_HS512]
     url = case T.last issuerUrl of
         '/' -> issuerUrl
         _   -> issuerUrl `T.snoc` '/'

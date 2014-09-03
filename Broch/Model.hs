@@ -13,6 +13,7 @@ import Data.Time.Clock.POSIX
 import Data.Tuple (swap)
 import Jose.Jwt (IntDate)
 import Jose.Jwa (JwsAlg)
+import Jose.Jwk
 
 type TokenTTL = NominalDiffTime
 
@@ -185,6 +186,7 @@ instance FromJSON ClientAuthMethod where
         "client_secret_basic" -> pure ClientSecretBasic
         "client_secret_post"  -> pure ClientSecretPost
         "client_secret_jwt"   -> pure ClientSecretJwt
+        "private_key_jwt"     -> pure PrivateKeyJwt
         "none"                -> pure ClientAuthNone
         _                     -> fail "Unknown or unsupported client auth method"
 
@@ -193,7 +195,7 @@ instance ToJSON ClientAuthMethod where
         ClientSecretBasic -> String "client_secret_basic"
         ClientSecretPost  -> String "client_secret_post"
         ClientSecretJwt   -> String "client_secret_jwt"
-        PrivateKeyJwt     -> String "private_secret_jwt"
+        PrivateKeyJwt     -> String "private_key_jwt"
         ClientAuthNone    -> String "none"
 
 data Client = Client
@@ -207,7 +209,9 @@ data Client = Client
     , autoapprove :: Bool
     , tokenEndpointAuthMethod :: ClientAuthMethod
     , tokenEndpointAuthAlg    :: Maybe JwsAlg
-    }
+    , clientKeysUri :: Maybe Text
+    , clientKeys    :: Maybe [Jwk]
+    } deriving (Show)
 
 data ResponseType = Code
                   | Token

@@ -16,6 +16,7 @@ module Broch.Persist
     )
 where
 
+import           Control.Applicative
 import           Control.Monad (void)
 import           Data.Aeson (encode, decodeStrict)
 import           Data.ByteString.Lazy (toStrict)
@@ -63,6 +64,8 @@ Client sql=oauth2_client
   autoapprove    Bool
   tokenEndpointAuthMethod Text
   tokenEndpointAuthAlg Text Maybe
+  keysUri        Text Maybe
+  keys           Text Maybe
   UniqueClientId clientId
   deriving Show
 
@@ -129,8 +132,8 @@ deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 createClient :: (PersistStore m, Functor m)
              => M.Client
              -> m ()
-createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg) =
-    void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg)
+createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg kuri ks) = let ks' = (TE.decodeUtf8 . toStrict . encode) <$> ks
+   in  void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg) kuri ks'
 
 getClientById :: PersistUnique m
               => Text
@@ -139,12 +142,13 @@ getClientById cid = do
     record <- getBy $ UniqueClientId cid
     case record of
         Nothing -> return Nothing
-        Just (Entity _ (Client _ ms gs uris atv rtv scps appr am aalg)) -> do
+        Just (Entity _ (Client _ ms gs uris atv rtv scps appr am aalg kuri ks)) -> do
             let grants     = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
                 authMethod = fromText am
                 authAlg    = fmap fromText aalg
+                ks'        = TE.encodeUtf8 <$> ks >>= decodeStrict
 
-            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg
+            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg kuri ks'
 
 createUser :: (PersistStore m, Functor m)
            => Text

@@ -2,12 +2,13 @@
 
 module Broch.OpenID.Registration where
 
-import           Control.Applicative (pure)
+import           Control.Applicative (pure, (<$>))
 import           Data.Aeson
 import           Data.Maybe (fromMaybe)
 import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           Jose.Jwa
+import           Jose.Jwk
 
 import           Broch.Model
 
@@ -22,9 +23,9 @@ instance ToJSON AppType where
 
 instance FromJSON AppType where
     parseJSON = withText "AppType" $ \t -> case t of
-        "web" -> pure Web
-        "app" -> pure Native
-        _     -> fail "Invalid application_type"
+        "web"    -> pure Web
+        "native" -> pure Native
+        _        -> fail "Invalid application_type"
 
 data ClientMetaData = ClientMetaData
     { redirect_uris :: [Text]
@@ -38,7 +39,7 @@ data ClientMetaData = ClientMetaData
     , policy_uri :: Maybe Text
     , tos_uri :: Maybe Text
     , jwks_uri :: Maybe Text
-    , jwks :: Maybe Text
+    , jwks :: Maybe JwkSet
     , sector_identifier_uri :: Maybe Text
     , subject_type :: Maybe Text
     , id_token_signed_response_alg :: Maybe JwsAlg
@@ -57,7 +58,7 @@ data ClientMetaData = ClientMetaData
     , default_acr_values :: Maybe [Text]
     , initiate_login_uri :: Maybe Text
     , request_uris :: Maybe [Text]
-    } deriving (Eq, Show, Generic)
+    } deriving (Show, Generic)
 
 
 makeClient :: ClientId -> Text -> ClientMetaData -> Client
@@ -72,6 +73,8 @@ makeClient cid csec md = Client
     , autoapprove = False
     , tokenEndpointAuthMethod = fromMaybe ClientSecretBasic $ token_endpoint_auth_method md
     , tokenEndpointAuthAlg    = token_endpoint_auth_signing_alg md
+    , clientKeysUri           = jwks_uri md
+    , clientKeys              = keys <$> jwks md
     }
 
 instance FromJSON ClientMetaData
