@@ -28,17 +28,17 @@ idTokenTTL :: NominalDiffTime
 idTokenTTL = 1000
 
 data IdToken = IdToken
-    { iss :: Text
-    , sub :: SubjectId
-    , aud :: [Text]
-    , exp :: IntDate
-    , iat :: IntDate
-    , nonce :: Maybe Text
-    , acr :: Maybe Text
-    , amr :: Maybe [Text]
-    , azp :: Maybe Text
-    , c_hash :: Maybe Text
-    , at_hash :: Maybe Text
+    { iss     :: !Text
+    , sub     :: !SubjectId
+    , aud     :: ![Text]
+    , exp     :: !IntDate
+    , iat     :: !IntDate
+    , nonce   :: !(Maybe Text)
+    , acr     :: !(Maybe Text)
+    , amr     :: !(Maybe [Text])
+    , azp     :: !(Maybe Text)
+    , c_hash  :: !(Maybe Text)
+    , at_hash :: !(Maybe Text)
     } deriving (Show, Generic)
 
 omitNothingOptions :: Options
