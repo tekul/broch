@@ -8,6 +8,7 @@ import Control.Monad.Identity
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import Data.Map (Map)
+import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -19,31 +20,21 @@ import Test.HUnit hiding (Test)
 
 import Broch.Model
 import Broch.OAuth2.Token
+import qualified Broch.OAuth2.ClientAuth as CA
 import Broch.OAuth2.TestData
 
 
 spec :: Spec
 spec = grantTypeParameterErrorsSpec >> authorizationCodeTokenRequestSpec
+        >> clientAuthenticationSpec
         >> clientCredentialsTokenRequestSpec >> resourceOwnerGrantSpec
         >> refreshTokenGrantSpec
 
 success t = Right $ AccessTokenResponse t Bearer 987 Nothing (Just "refreshtoken") Nothing
 
-doToken env client = runIdentity $ processTokenRequest env authzHdr (\_ -> return $ Just client) now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
-  where
-    authzHdr = case clientSecret client of
-        Nothing  -> Nothing
-        Just sec -> basicHeader (clientId client) sec
+doToken env client = runIdentity $ processTokenRequest env client now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
 
 basicHeader cid secret = Just $ B.concat ["Basic ", B64.encode $ TE.encodeUtf8 $ T.concat [cid, ":", secret]]
-
-doTokenAuth authzHdr env = runIdentity $ processTokenRequest env authzHdr loadClient now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
-  where
-    loadClient :: Text -> Identity (Maybe Client)
-    loadClient cid = case cid of
-        "app" -> return $ Just appClient
-        _     -> return Nothing
-
 
 grantTypeParameterErrorsSpec =
     describe "A request with grant_type parameter error(s) (5.2)" $ do
@@ -94,36 +85,46 @@ authorizationCodeTokenRequestSpec =
         let env = Map.insert "code" ["whatcode"] authCodeEnv
         doToken env appClient @?= (Left $ InvalidGrant "Invalid authorization code")
 
-      it "returns invalid_request when mixing Basic and client_secret_post authentication" $ do
-        let env = Map.insert "client_secret" ["appsecret"] authCodeEnv
-        doToken env appClient @?= (Left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data")
+authCodeEnv = Map.insert "code"         ["catcode"]    $
+              Map.insert "redirect_uri" ["http://app"] $ createEnv AuthorizationCode
 
+
+clientAuthenticationSpec = describe "Client authentication scenarios" $ do
+    describe "Client basic authentication" $ do
+      it "returns invalid_client 401 when Basic auth client secret is wrong" $
+        doAuth authCodeEnv (basicHeader "app" "wrong") appClient @?= Left CA.InvalidClient401
+
+      it "returns invalid_client 401 when Basic auth client secret is empty" $
+        doAuth authCodeEnv (basicHeader "app" "") appClient @?= Left CA.InvalidClient401
+
+      it "returns invalid_client 401 when Basic header is missing colon" $
+        doAuth authCodeEnv (Just $ B.concat ["Basic ", B64.encode "appappsecret"]) appClient @?= Left CA.InvalidClient401
+
+      it "returns invalid_client 401 when Basic header is not base64 encoded" $
+        doAuth authCodeEnv (Just $ B.concat ["Basic ", "app:appsecret"]) appClient @?= Left CA.InvalidClient401
+
+    describe "client_secret_post authentication" $ do
       it "returns invalid_client when client doesn't exist" $ do
         let env = Map.fromList [("client_id", ["badclient"]), ("client_secret", ["whocares"])] `Map.union` authCodeEnv
-        doTokenAuth Nothing env @?= Left InvalidClient
-
-      it "returns invalid_client 401 when Basic auth client secret is wrong" $ do
-        doTokenAuth (basicHeader "app" "wrong") authCodeEnv @?= Left InvalidClient401
-
-      it "returns invalid_client 401 when Basic auth client secret is empty" $ do
-        doTokenAuth (basicHeader "app" "") authCodeEnv @?= Left InvalidClient401
-
-      it "returns invalid_client 401 when Basic header is missing colon" $ do
-        doTokenAuth (Just $ B.concat ["Basic ", B64.encode "appappsecret"]) authCodeEnv @?= Left InvalidClient401
-
-      it "returns invalid_client 401 when Basic header is not base64 encoded" $ do
-        doTokenAuth (Just $ B.concat ["Basic ", "app:appsecret"]) authCodeEnv @?= Left InvalidClient401
+        doAuth env Nothing appClient @?= Left CA.InvalidClient
 
       it "returns invalid_client when no auth data is supplied" $ do
         let env = Map.insert "client_id" ["app"] authCodeEnv
-        doTokenAuth Nothing env @?= Left InvalidClient
+        doAuth env Nothing appClient @?= Left CA.InvalidClient
+
+      it "returns invalid_request when mixing Basic and client_secret_post authentication" $ do
+        let env = Map.insert "client_secret" ["appsecret"] authCodeEnv
+        doAuth env (basicHeader "app" "appsecret") appClient @?= (Left $ CA.InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data")
 
       it "returns invalid_client when posted client secret is wrong" $ do
         let env = Map.fromList [("client_id", ["app"]), ("client_secret", ["wrong"])] `Map.union` authCodeEnv
-        doTokenAuth Nothing env @?= Left InvalidClient
+        doAuth env Nothing appClient @?= Left CA.InvalidClient
+  where
+    doAuth env hdr clnt = fmap clientId $ runIdentity $ CA.authenticateClient env hdr now (loadClient clnt) withTestRNG
+    loadClient c name
+      | clientId c == name = return $ Just c
+      | otherwise          = return Nothing
 
-authCodeEnv = Map.insert "code"         ["catcode"]    $
-              Map.insert "redirect_uri" ["http://app"] $ createEnv AuthorizationCode
 
 clientCredentialsTokenRequestSpec =
     describe "A client credentials token request" $ do
@@ -174,8 +175,8 @@ createEnv gt = Map.fromList [("grant_type", [grantTypeName gt])]
 
 createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
   where
-    u = maybe "" id mUser
-    token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ (map scopeName s))
+    u = fromMaybe "" mUser
+    token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ map scopeName s)
 
 createIdToken :: (Monad m) => CreateIdToken m
 createIdToken _ _ _ _ _ _ = return "an_id_token"

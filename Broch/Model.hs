@@ -1,8 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, Rank2Types #-}
 
 module Broch.Model where
 
 import Control.Applicative (pure)
+import Crypto.Random (CPRG)
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.Text (Text)
@@ -14,6 +15,8 @@ import Data.Tuple (swap)
 import Jose.Jwt (IntDate)
 import Jose.Jwa (JwsAlg)
 import Jose.Jwk
+
+type WithCPRG m g = CPRG g => (g -> (a, g)) -> m a
 
 type TokenTTL = NominalDiffTime
 

@@ -23,6 +23,7 @@ Library
   Exposed-modules:    Broch.Model
                     , Broch.Token
                     , Broch.Random
+                    , Broch.OAuth2.ClientAuth
                     , Broch.OAuth2.Token
                     , Broch.OAuth2.Authorize
                     , Broch.OAuth2.Internal

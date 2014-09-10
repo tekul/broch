@@ -11,13 +11,10 @@ where
 import Control.Applicative
 import Control.Error
 import Control.Monad.Trans (lift)
-import Control.Monad (join, when, unless)
+import Control.Monad (when)
 import Data.Aeson hiding (decode)
 import Data.Aeson.Types (Parser)
-import Data.Byteable (constEqBytes)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Base64 as B64
 import Data.Map (Map)
 import Data.Monoid
 import Data.Text (Text)
@@ -26,7 +23,6 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX (POSIXTime)
 import Jose.Jwt
-import Jose.Jws
 
 import Broch.Model
 import qualified Broch.OAuth2.Internal as I
@@ -70,9 +66,8 @@ instance FromJSON AccessTokenResponse where
                             <*> fmap (fmap TE.encodeUtf8) (v .:? "scope")
 
 -- See http://tools.ietf.org/html/rfc6749#section-5.2 for error handling
+-- invalid_client is dealt with in the ClientAuth module
 data TokenError = InvalidRequest Text
-                | InvalidClient
-                | InvalidClient401
                 | InvalidGrant Text
                 | UnauthorizedClient Text
                 | UnsupportedGrantType
@@ -82,11 +77,8 @@ data TokenError = InvalidRequest Text
 instance ToJSON TokenError where
     toJSON e = object $ ("error" .= errr) : maybe [] (\m -> ["error_description" .= m]) desc
       where
-        invalidClient = ("invalid_client", Nothing)
         (errr, desc) = case e of
             InvalidRequest m -> ("invalid_request" :: Text, Just m)
-            InvalidClient    -> invalidClient
-            InvalidClient401 -> invalidClient
             InvalidGrant   m -> ("invalid_grant",  Just m)
             UnauthorizedClient m -> ("unauthorized_client", Just m)
             UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
@@ -94,8 +86,7 @@ instance ToJSON TokenError where
 
 processTokenRequest :: (Applicative m, Monad m)
                     => Map Text [Text]
-                    -> Maybe ByteString
-                    -> LoadClient m
+                    -> Client
                     -> POSIXTime
                     -> LoadAuthorization m
                     -> AuthenticateResourceOwner m
@@ -103,9 +94,8 @@ processTokenRequest :: (Applicative m, Monad m)
                     -> CreateIdToken m
                     -> DecodeRefreshToken m
                     -> m (Either TokenError AccessTokenResponse)
-processTokenRequest env authzHeader getClient now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runEitherT $ do
-    client    <- authenticateClient
-    grantType <- getGrantType client
+processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runEitherT $ do
+    grantType <- getGrantType
     (!uid, !idt, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam "code"
@@ -120,13 +110,13 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
             return (Just usr, idt, AuthorizationCode, scp)
 
         ClientCredentials -> do
-            scp <- getClientScope client
+            scp <- getClientScope
             return (Nothing, Nothing, ClientCredentials, scp)
 
         ResourceOwner -> do
             username <- requireParam "username"
             password <- requireParam "password"
-            s <- getResourceOwnerScope client
+            s <- getResourceOwnerScope
             user <- lift $ authenticateResourceOwner username password
             case user of
                 Nothing -> left $ InvalidGrant "authentication failed"
@@ -157,14 +147,14 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
   where
     checkExpiry (IntDate t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
 
-    getGrantType client = do
+    getGrantType = do
         gt <- requireParam "grant_type"
         case lookup gt grantTypes of
             Nothing -> left UnsupportedGrantType
             Just g  -> if g `elem` authorizedGrantTypes client
                        then right g
                        else left $ UnauthorizedClient $ T.append "Client is not authorized to use grant: " gt
-    getClientScope client = do
+    getClientScope = do
         mScope <- getRequestedScope
         either (left . InvalidScope) right $ I.checkClientScope client mScope
 
@@ -176,86 +166,10 @@ processTokenRequest env authzHeader getClient now getAuthorization authenticateR
 
     getRequestedScope = maybeParam "scope" >>= \ms -> return $ fmap (map scopeFromName . T.splitOn " ") ms
 
-    -- | Authenticate the client using one of the methods defined in
-    -- http://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
-    -- On failure an invalid_client error is returned with a 400 error
-    -- code, or 401 if the client used the Authorization header.
-    -- See http://tools.ietf.org/html/rfc6749#section-5.2
-    authenticateClient = do
-        clid      <- maybeParam "client_id"
-        secret    <- maybeParam "client_secret"
-        assertion <- maybeParam "client_assertion"
-        aType     <- maybeParam "client_assertion_type"
-
-        -- TODO: Return auth type here so it can be checked after
-        -- authenticating
-        client <- case (authzHeader, clid, secret, assertion, aType) of
-            (Just h,  _, Nothing, Nothing, Nothing)         -> noteT InvalidClient401 $ basicAuth h
-            (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT InvalidClient    $ checkClientSecret cid sec
-            (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") -> noteT InvalidClient $ clientAssertionAuth a
-            (Nothing, _, Nothing, Nothing, Nothing) -> left InvalidClient
-            _                                       -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
-        checkClientId clid client
-
-        return client
-
-    clientAssertionAuth a = do
-        (hdr, claims)   <- hushT . hoistEither $ decodeClaims $ TE.encodeUtf8 a
-        alg <- case hdr of
-            JwsH h -> just $ jwsAlg h
-            _      -> nothing
-        cid             <- hoistMaybe $ jwtSub claims
-        -- TODO: Check audience
-        unless (jwtIss claims == Just cid) nothing
-        IntDate expiry  <- hoistMaybe $ jwtExp claims
-        unless (expiry > now) nothing
-        -- TODO: Introduce jti caching
-        client <- hoistMaybe =<< (lift $ getClient cid)
-        let authMethod = tokenEndpointAuthMethod client
-        let authAlg    = tokenEndpointAuthAlg client
-        unless (authAlg == Nothing || authAlg == Just alg) nothing
-        let jwt        = TE.encodeUtf8 a
-
-        case authMethod of
-            ClientSecretJwt -> do
-                sec  <- hoistMaybe $ clientSecret client
-                either (const nothing) (const $ just client) $ hmacDecode (TE.encodeUtf8 sec) jwt
-            PrivateKeyJwt   -> do
-                keys <- hoistMaybe $ clientKeys client
-                either (const nothing) (const $ just client) $ decode keys jwt
-            _               -> nothing
-
-    basicAuth h    = do
-        (cid, secret) <- hoistMaybe decodedHeader
-        checkClientSecret cid secret
-      where
-        decodedHeader = case B.split ' ' h of
-            ["Basic", b] -> join $ creds <$> (hush $ B64.decode b)
-            _            -> Nothing
-
-        creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
-            Right (u, p) -> if T.length p == 0
-                                then Nothing
-                                else Just (u, T.tail p)
-            _            -> Nothing
-
-    checkClientSecret cid secret = do
-        -- TODO: Fixed delay based on cid and secret
-        client <- lift $ getClient cid
-        hoistMaybe $ case client of
-            Nothing -> Nothing
-            Just c  -> clientSecret c >>= \s ->
-                if constEqBytes (TE.encodeUtf8 s) (TE.encodeUtf8 secret)
-                    then Just c
-                    else Nothing
-
-    checkClientId cid client = case cid of
-        Nothing -> return ()
-        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter is doesn't match authentication"
-
     requireParam = eitherParam I.requireParam
     maybeParam   = eitherParam I.maybeParam
     eitherParam  f n  = either (left . InvalidRequest) right $ f env n
+
 
 validateAuthorization :: (Monad m) => Authorization
                       -> Client

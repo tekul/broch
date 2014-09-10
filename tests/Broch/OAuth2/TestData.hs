@@ -1,8 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module Broch.OAuth2.TestData where
 
+import Crypto.Random (CPRG(..))
+import qualified Data.ByteString as B
 import Data.Time.Clock.POSIX
 import Jose.Jwt (IntDate(..))
 
@@ -11,6 +13,20 @@ import Broch.Model
 -- $ date -r 1400000000
 -- Tue 13 May 2014 17:53:20 BST
 now = fromIntegral (1400000000 :: Int) :: POSIXTime
+
+
+-- Fake CPRNG for client authentication
+data RNG = RNG
+
+instance CPRG RNG where
+    cprgGenerate n g        = (B.replicate n 255, g)
+    cprgFork                = undefined
+    cprgCreate              = undefined
+    cprgSetReseedThreshold  = undefined
+    cprgGenerateWithEntropy = undefined
+
+withTestRNG :: (Monad m) => WithCPRG m RNG
+withTestRNG f = return $ fst $ f RNG
 
 -- Authorization from user "cat" to app
 catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app")

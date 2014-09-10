@@ -44,6 +44,7 @@ import           Web.Scotty.Trans
 
 import           Broch.Model hiding (Email)
 import           Broch.OAuth2.Authorize
+import           Broch.OAuth2.ClientAuth
 import           Broch.OAuth2.Token
 import           Broch.OpenID.Discovery (defaultOpenIDConfiguration)
 import           Broch.OpenID.IdToken
@@ -123,7 +124,8 @@ testBroch issuer pool = do
     -- Create everything we need for the oauth endpoints
     -- First we need an RSA key for signing tokens
     let runDB = flip runSqlPersistMPool pool
-    let getClient = liftIO . runDB . BP.getClientById
+    let getClient :: LoadClient (ActionT Except BrochM)
+        getClient = liftIO . runDB . BP.getClientById
     let createAuthorization code uid clnt now scp n uri = liftIO $ runDB $
                             BP.createAuthorization code uid clnt now scp n uri
 
@@ -139,7 +141,7 @@ testBroch issuer pool = do
     let saveApproval a = runDB $ BP.createApproval a
     (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
-    let decodeRefreshToken _ jwt = return $ decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
+    let decodeRefreshToken _ jwt = decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
     let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
     let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
     let config = toJSON $ defaultOpenIDConfiguration issuer
@@ -158,7 +160,10 @@ testBroch issuer pool = do
             runDB $ BP.createClient client { clientKeys = ks }
             return client
 
-        createIdToken uid client nons now code aToken = return $ createIdTokenJws RS256 kPr issuer (clientId client) nons uid now code aToken
+        createIdToken :: CreateIdToken (ActionT Except BrochM)
+        createIdToken uid client nons now code aToken = do
+            token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 kPr issuer (clientId client) nons uid now code aToken
+            either (const $ error "Failed to create IdToken") return token
 
         hashPassword p = do
             hash <- liftIO $ BCrypt.hashPasswordUsingPolicy BCrypt.fastBcryptHashingPolicy (TE.encodeUtf8 p)
@@ -323,13 +328,17 @@ testBroch issuer pool = do
     tokenHandler getClient getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = do
         r <- request
         let authzHdr = lookup hAuthorization $ W.requestHeaders r
-        env  <- fmap toMap params
-        now  <- liftIO getPOSIXTime
-        resp <- processTokenRequest env authzHdr getClient now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
-        case resp of
-            Right tr              -> json $ toJSON tr
+        env    <- fmap toMap params
+        now    <- liftIO getPOSIXTime
+        clientAuth <- authenticateClient env authzHdr now getClient (liftIO . withCPRG)
+        case clientAuth of
             Left InvalidClient401 -> status unauthorized401 >> setHeader "WWW-Authenticate" "Basic" >> json (toJSON InvalidClient401)
             Left bad              -> status badRequest400   >> json (toJSON bad)
+            Right client -> do
+                resp <- processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
+                case resp of
+                    Right tokenResponse -> json $ toJSON tokenResponse
+                    Left  bad           -> status badRequest400 >> json (toJSON bad)
 
     getAuthId key = do
         uid <- getEncryptedCookie key "bsid"
@@ -423,7 +432,7 @@ toMap :: [(Text, Text)] -> Map.Map T.Text [T.Text]
 toMap = Map.unionsWith (++) . map (\(x, y) -> Map.singleton (L.toStrict x) [L.toStrict y])
 
 withBearerToken :: MonadIO m
-                => (B.ByteString -> Maybe AccessGrant)
+                => (B.ByteString -> m (Maybe AccessGrant))
                 -> [Scope]
                 -> (AccessGrant -> ActionT Except m ())
                 -> ActionT Except m ()
@@ -431,15 +440,9 @@ withBearerToken decodeToken requiredScope f = do
     r <- request
     case bearerToken r of
         Nothing -> unauthorized
-        Just t  -> case decodeToken t of
-            Just g@(AccessGrant _ _ _ scp (IntDate ex)) -> do
-                -- Check expiry and scope
-                now <- liftIO getPOSIXTime
-                unless (ex > now) $ raise $ InvalidToken "Token has expired"
-                unless (requiredScope `intersect` scp == requiredScope) $ raise $ InsufficientScope requiredScope
-                f g
-
-            Nothing -> unauthorized
+        Just t  -> do
+            g <- lift $ decodeToken t
+            maybe unauthorized runWithToken g
   where
     unauthorized = raise $ WWWAuthenticate "Bearer"
     bearerToken r = do
@@ -448,3 +451,9 @@ withBearerToken decodeToken requiredScope f = do
             ["Bearer", t] -> Just t
             _             -> Nothing
 
+    runWithToken g@(AccessGrant _ _ _ scp (IntDate ex)) = do
+        -- Check expiry and scope
+        now <- liftIO getPOSIXTime
+        unless (ex > now) $ raise $ InvalidToken "Token has expired"
+        unless (requiredScope `intersect` scp == requiredScope) $ raise $ InsufficientScope requiredScope
+        f g

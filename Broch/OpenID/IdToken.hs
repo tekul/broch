@@ -6,6 +6,7 @@ import Prelude hiding (exp)
 
 import Crypto.PubKey.HashDescr
 import Crypto.PubKey.RSA (PrivateKey)
+import Crypto.Random (CPRG)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.ByteString
@@ -18,7 +19,7 @@ import Data.Time.Clock.POSIX
 import GHC.Generics
 import Jose.Jwa
 import Jose.Jws
-import Jose.Jwt (IntDate (..))
+import Jose.Jwt (IntDate (..), JwtError)
 import qualified Jose.Internal.Base64 as B64
 
 import Broch.Model
@@ -54,7 +55,9 @@ instance FromJSON IdToken where
 
 -- TODO: Add support for nested JWE token
 
-createIdTokenJws :: JwsAlg                        -- JWS encoding
+createIdTokenJws :: CPRG g
+                 => g
+                 -> JwsAlg                        -- JWS encoding
                  -> PrivateKey
                  -> Text                          -- Issuer
                  -> ClientId                      -- Audience
@@ -63,9 +66,9 @@ createIdTokenJws :: JwsAlg                        -- JWS encoding
                  -> POSIXTime                     -- Current time
                  -> Maybe ByteString
                  -> Maybe ByteString
-                 -> ByteString
-createIdTokenJws a key issuer clid n subject now code accessToken =
-    rsaEncode a key $ BL.toStrict . encode $ IdToken
+                 -> (Either JwtError ByteString, g)
+createIdTokenJws rng a key issuer clid n subject now code accessToken =
+    rsaEncode rng a key $ BL.toStrict . encode $ IdToken
         { iss = issuer
         , sub = subject
         , aud = [clid]

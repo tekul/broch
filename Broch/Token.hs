@@ -70,21 +70,28 @@ createJwtAccessToken pubKey user client grantType scopes now = do
                         }
 
 
-decodeJwtRefreshToken :: RSA.PrivateKey -> ByteString -> Maybe AccessGrant
+decodeJwtRefreshToken :: MonadIO m
+                      => RSA.PrivateKey
+                      -> ByteString
+                      -> m (Maybe AccessGrant)
 decodeJwtRefreshToken = decodeJwtToken
 
-decodeJwtAccessToken :: RSA.PrivateKey
+decodeJwtAccessToken :: MonadIO m
+                     => RSA.PrivateKey
                      -> ByteString
-                     -> Maybe AccessGrant
+                     -> m (Maybe AccessGrant)
 decodeJwtAccessToken = decodeJwtToken
 
-decodeJwtToken :: RSA.PrivateKey -> ByteString -> Maybe AccessGrant
-decodeJwtToken privKey jwt = case claims of
-    Right (Just c)  -> Just $ claimsToAccessGrant c
-    _               -> Nothing
+decodeJwtToken :: MonadIO m
+               => RSA.PrivateKey
+               -> ByteString
+               -> m (Maybe AccessGrant)
+decodeJwtToken privKey jwt = do
+    claims <- liftIO $ withCPRG $ \g -> Jwe.rsaDecode g privKey jwt
+    return $ case fmap decodeClaims claims of
+        Right (Just c)  -> Just $ claimsToAccessGrant c
+        _               -> Nothing
   where
-    claims = decodeClaims <$> Jwe.rsaDecode privKey jwt
-
     decodeClaims :: (JweHeader, ByteString) -> Maybe Claims
     decodeClaims (_, t) = decode $ fromStrict t
 
