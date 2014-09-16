@@ -117,6 +117,12 @@ handleEx e = do
     debug e
     status internalServerError500 >> text (L.pack $ show e)  --"Whoops! Something went wrong!"
 
+data Usr = Usr SubjectId UTCTime deriving (Show, Read)
+
+instance Subject Usr where
+    subjectId (Usr s _) = s
+    authTime  (Usr _ t) = utcTimeToPOSIXSeconds t
+
 testBroch :: T.Text -> ConnectionPool -> IO W.Application
 testBroch issuer pool = do
     _ <- runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
@@ -126,8 +132,8 @@ testBroch issuer pool = do
     let runDB = flip runSqlPersistMPool pool
     let getClient :: LoadClient (ActionT Except BrochM)
         getClient = liftIO . runDB . BP.getClientById
-    let createAuthorization code uid clnt now scp n uri = liftIO $ runDB $
-                            BP.createAuthorization code uid clnt now scp n uri
+    let createAuthorization code usr clnt now scp n uri = liftIO $ runDB $
+                            BP.createAuthorization code (subjectId usr) clnt now scp n uri
 
     let getAuthorization = liftIO . runDB . BP.getAuthorizationByCode
     let authenticateResourceOwner username password = do
@@ -142,7 +148,7 @@ testBroch issuer pool = do
     (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
     let decodeRefreshToken _ jwt = decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
-    let getApproval uid clnt now = runDB $ BP.getApproval uid (clientId clnt) now
+    let getApproval usr clnt now = runDB $ BP.getApproval (subjectId usr) (clientId clnt) now
     let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
     let config = toJSON $ defaultOpenIDConfiguration issuer
     let registerClient :: ClientMetaData -> IO Client
@@ -214,7 +220,8 @@ testBroch issuer pool = do
             case user of
                 Nothing -> redirectFull "/login"
                 Just u  -> do
-                    setEncryptedCookie csKey "bsid" (TE.encodeUtf8 u)
+                    now <- liftIO getCurrentTime
+                    setEncryptedCookie csKey "bsid" (B.pack $ show $ Usr u now)
                     l <- getCachedLocation csKey "/home"
                     redirectFull $ L.toStrict l
 
@@ -226,12 +233,12 @@ testBroch issuer pool = do
             html $ renderHtml $ approvalPage client scope (round now)
 
         post "/approval" $ do
-            user   <- getAuthId csKey
-            clntId <- param "client_id"
+            uid       <- subjectId <$> getAuthId csKey
+            clntId    <- param "client_id"
             expiryTxt <- param "expiry"
             scope     <- param "scope"
             let Right (expiry, _) = decimal expiryTxt
-                approval = Approval user clntId (map scopeFromName scope) (IntDate $ fromIntegral (expiry :: Int64))
+                approval = Approval uid clntId (map scopeFromName scope) (IntDate $ fromIntegral (expiry :: Int64))
             liftIO $ saveApproval approval
             l <- getCachedLocation csKey "/uhoh"
             clearCachedLocation
@@ -341,9 +348,9 @@ testBroch issuer pool = do
                     Left  bad           -> status badRequest400 >> json (toJSON bad)
 
     getAuthId key = do
-        uid <- getEncryptedCookie key "bsid"
-        case uid of
-            Just u  -> return (TE.decodeUtf8 u)
+        usr <- getEncryptedCookie key "bsid"
+        case usr of
+            Just u  -> return $ (read $ T.unpack $ TE.decodeUtf8 u :: Usr)
             Nothing -> cacheLocation key >> redirectFull "/login"
 
 

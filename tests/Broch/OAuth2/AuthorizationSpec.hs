@@ -5,7 +5,6 @@ module Broch.OAuth2.AuthorizationSpec where
 
 import Control.Monad.Identity
 import qualified Data.Map as Map
-import Data.Text (Text)
 import Test.Hspec
 import Test.HUnit hiding (Test)
 
@@ -16,16 +15,21 @@ import Broch.OAuth2.TestData
 spec :: Spec
 spec = describe "Authorization endpoint requests" $ evilClientErrorSpec >> authzRequestErrorSpec
 
+data TestUser = TU SubjectId
 
-doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken "cat"  env now
+instance Subject TestUser where
+    subjectId (TU s) = s
+    authTime         = const now
+
+doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken (TU "cat") env now
 
 gc = return "acode"
 
-createAuthorization :: CreateAuthorization Identity Text
-createAuthorization "acode" "cat" (Client "appclient" _ _ _ _ _ _ _ _ _ _ _) _ _ _ _ = return ()
+createAuthorization :: CreateAuthorization Identity TestUser
+createAuthorization "acode" (TU "cat") (Client "appclient" _ _ _ _ _ _ _ _ _ _ _) _ _ _ _ = return ()
 createAuthorization _ _ _ _ _ _ _ = fail "Invalid authz data"
 
-resourceOwnerApproval _ _ scope _= return scope
+resourceOwnerApproval _ _ scope _ = return scope
 
 createIdToken = undefined
 createAccessToken = undefined

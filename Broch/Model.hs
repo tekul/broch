@@ -27,11 +27,7 @@ type SubjectId = Text
 
 class Subject s where
     subjectId :: s -> SubjectId
-
--- Temorary hack to get round Yesod auth problems
-
-instance Subject Text where
-    subjectId t = t
+    authTime  :: s -> POSIXTime
 
 
 data Scope = OpenID
