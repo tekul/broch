@@ -53,15 +53,12 @@ processAuthorizationRequest :: (Monad m, Subject s) => LoadClient m
                             -> Map.Map Text [Text]
                             -> POSIXTime
                             -> m (Either EvilClientError Text)
-processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = do
-    curi <- getClientAndRedirectURI getClient env
-    case curi of
-        Left e -> return $ Left e
-        Right (client, uri) -> do
-            let redirectURI = fromMaybe (defaultRedirectURI client) uri
+processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
+    (client, uri) <- getClientAndRedirectURI
+    let redirectURI = fromMaybe (defaultRedirectURI client) uri
 
-            responseUrl <- authorizationResponseURL client uri
-            return . Right $ T.concat [redirectURI, responseUrl]
+    responseUrl <- lift $ authorizationResponseURL client uri
+    right $ T.concat [redirectURI, responseUrl]
   where
     authorizationResponseURL client uri =
         case getAuthorizationRequest client of
@@ -128,11 +125,10 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                              Right Code -> '?'
                              Right _    -> '#'
                              Left  _    -> '?' -- TODO: Use client grant/response types
-            errr e     = T.cons separator $ errorURL st e
 
         -- All that was just to work out how to handle the error.
         -- Now check the actual parameter values.
-        either (Left . errr) return $ do
+        either (Left . errorURL separator st) return $ do
             state          <- either (Left . InvalidRequest) return stateParam
             responseType   <- getResponseType
             checkResponseType client responseType
@@ -154,7 +150,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
 
     getResponseType :: Either AuthorizationError ResponseType
     getResponseType = do
-        rtParam        <- either (Left . InvalidRequest) return $ requireParam env "response_type"
+        rtParam <- either (Left . InvalidRequest) return $ requireParam env "response_type"
         maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
 
     -- TODO: Create a type "CheckResponseType" and use it to allow configuration of
@@ -180,32 +176,28 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     splitOnSpace = T.splitOn " "
 
 
--- Authorization endpoint helper functions
+    -- "Evil client" checking
+    -- Get and checks the parameters for which an error should not be reported
+    -- to the client, but to the resource owner.
+    -- If a redirect_uri parameter is supplied it must be valid.
+    -- If none is supplied, the default for the client will be used.
+    getClientAndRedirectURI = do
+        cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
+        uri    <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
+        client <- maybe (left $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
+        validateRedirectURI client uri
+        right (client, uri)
+      where
+        -- | Check the redirectURI is registered for the client
+        validateRedirectURI _ Nothing = return ()
+        validateRedirectURI client (Just uri)
+          | T.any (== '#') uri        = left FragmentInUri
+          | otherwise                 = if uri `elem` redirectURIs client
+                                            then right ()
+                                            else left InvalidRedirectUri
 
--- "Evil client" checking
--- Get and checks the parameters for which an error should not be reported
--- to the client, but to the resource owner.
--- If a redirect_uri parameter is supplied it must be valid.
--- If none is supplied, the default for the client will be used.
-
-getClientAndRedirectURI :: (Monad m) => LoadClient m -> Map.Map Text [Text] -> m (Either EvilClientError (Client, Maybe Text))
-getClientAndRedirectURI getClient env = runEitherT $ do
-    cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
-    uri    <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
-    client <- maybe (left $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
-    validateRedirectURI client uri
-    right (client, uri)
-  where
-    -- | Check the redirectURI is registered for the client
-    validateRedirectURI _ Nothing = return ()
-    validateRedirectURI client (Just uri)
-      | T.any (== '#') uri        = left FragmentInUri
-      | otherwise                 = if uri `elem` redirectURIs client
-                                        then right ()
-                                        else left InvalidRedirectUri
-
-errorURL :: Maybe Text -> AuthorizationError -> Text
-errorURL state authzError = TE.decodeUtf8 qs
+errorURL :: Char -> Maybe Text -> AuthorizationError -> Text
+errorURL separator state authzError = T.cons separator $ TE.decodeUtf8 qs
   where
     qs = renderSimpleQuery False $ addStateParam state params
     params = ("error", e) : maybe [] (\d -> [("error_description", d)]) desc
