@@ -26,7 +26,7 @@ doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAutho
 gc = return "acode"
 
 createAuthorization :: CreateAuthorization Identity TestUser
-createAuthorization "acode" (TU "cat") (Client "appclient" _ _ _ _ _ _ _ _ _ _ _) _ _ _ _ = return ()
+createAuthorization "acode" (TU "cat") Client {clientId = "appclient"} _ _ _ _ = return ()
 createAuthorization _ _ _ _ _ _ _ = fail "Invalid authz data"
 
 resourceOwnerApproval _ _ scope _ = return scope
@@ -34,27 +34,31 @@ resourceOwnerApproval _ _ scope _ = return scope
 createIdToken = undefined
 createAccessToken = undefined
 
+invalidClient   = Left . MaliciousClient . InvalidClient
+invalidRedirect = Left $ MaliciousClient $ InvalidRedirectUri
+clientError     = Left . ClientRedirectError
+
 evilClientErrorSpec =
     describe "A potentially malicious client request" $ do
       it "returns an error if client_id is unknown" $
-        doAuthz (Map.insert "client_id" ["badclient"] env) @?= (Left $ InvalidClient "Client does not exist")
+        doAuthz (Map.insert "client_id" ["badclient"] env) @?= (invalidClient "Client does not exist")
       it "returns an error if client_id is missing" $
-        doAuthz (Map.delete "client_id" env) @?= (Left $ InvalidClient "Missing client_id")
+        doAuthz (Map.delete "client_id" env) @?= (invalidClient "Missing client_id")
       it "returns an error if redirect_uri doesn't match client's" $
-        doAuthz (Map.insert "redirect_uri" ["https://badclient"] env) @?= Left InvalidRedirectUri
+        doAuthz (Map.insert "redirect_uri" ["https://badclient"] env) @?= invalidRedirect
       it "returns an error if redirect_uri is duplicated" $
-        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] env) @?= Left InvalidRedirectUri
+        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] env) @?= invalidRedirect
       it "returns an error if redirect_uri contains a fragment" $
-        doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] env) @?= Left FragmentInUri
+        doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] env) @?= (Left $ MaliciousClient $ FragmentInUri)
   where
     env = createEnv
 
 authzRequestErrorSpec =
     describe "A malformed authorization request" $ do
       it "returns invalid_request for a duplicate state parameter" $
-        doAuthz (Map.insert "state" ["astate", "anotherstate"] createEnv) @?= Right "http://app?error=invalid_request&error_description=Duplicate%20state"
+        doAuthz (Map.insert "state" ["astate", "anotherstate"] createEnv) @?= clientError "http://app?error=invalid_request&error_description=Duplicate%20state"
       it "returns invalid_request for a missing response_type" $
-        doAuthz (Map.delete "response_type" createEnv) @?= Right "http://app?state=somestate&error=invalid_request&error_description=Missing%20response_type"
+        doAuthz (Map.delete "response_type" createEnv) @?= clientError "http://app?state=somestate&error=invalid_request&error_description=Missing%20response_type"
 
 
 createEnv = Map.fromList [("client_id", ["app"]), ("state", ["somestate"]), ("redirect_uri", ["http://app"]), ("response_type", ["code"])]

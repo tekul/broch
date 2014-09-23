@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Broch.OAuth2.Authorize
-    ( EvilClientError (..)
+    ( AuthorizationRequestError (..)
+    , EvilClientError (..)
     , processAuthorizationRequest
     , generateCode
     )
@@ -26,6 +27,11 @@ import Network.HTTP.Types
 import Broch.Model
 import Broch.Random
 import Broch.OAuth2.Internal
+
+
+data AuthorizationRequestError = MaliciousClient EvilClientError
+                               | RequiresReauthentication -- TODO add requested type (popup etc)
+                               | ClientRedirectError Text deriving (Show, Eq)
 
 data EvilClientError = InvalidClient Text
                      | InvalidRedirectUri
@@ -52,46 +58,45 @@ processAuthorizationRequest :: (Monad m, Subject s) => LoadClient m
                             -> s
                             -> Map.Map Text [Text]
                             -> POSIXTime
-                            -> m (Either EvilClientError Text)
+                            -> m (Either AuthorizationRequestError Text)
 processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
+    -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI
     let redirectURI = fromMaybe (defaultRedirectURI client) uri
 
-    responseUrl <- lift $ authorizationResponseURL client uri
-    right $ T.concat [redirectURI, responseUrl]
+    -- Decode the request, and fail with a client redirect if invalid
+    (state, responseType, requestedScope, nonce) <- getAuthorizationRequest redirectURI client
+
+    scope <- lift $ resourceOwnerApproval user client requestedScope now
+
+    -- Create the successful response redirect
+    responseParams <- lift $ authorizationResponse responseType client scope nonce uri
+
+    return $ T.cons (separator responseType) $ TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
   where
-    authorizationResponseURL client uri =
-        case getAuthorizationRequest client of
-            Left er -> return er
-            Right (state, responseType, requestedScope, nonce) -> do
-                scope <- resourceOwnerApproval user client requestedScope now
-                let separator         = case responseType of
-                                          Code -> '?'
-                                          _    -> '#'
-                    codeResponse      = doCode client scope nonce uri
-                    tokenResponse     = tokenParams =<< doAccessToken client scope
-                    idTokenResponse   = doIdToken client nonce
+    authorizationResponse responseType client scope nonce uri = do
+        let codeResponse    = doCode client scope nonce uri
+            tokenResponse   = tokenParams =<< doAccessToken client scope
+            idTokenResponse = doIdToken client nonce
 
-                responseParams <- case responseType of
-                    Code             -> liftM2 (:) (codeParam =<< codeResponse) $ scopeParam scope
-                    Token            -> tokenResponse
-                    IdTokenResponse  -> idTokenResponse Nothing Nothing
-                    CodeToken        -> liftM2 (:) (codeParam =<< codeResponse) tokenResponse
-                    -- The remaining hybrid responses need changes to the id_token
-                    -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
-                    TokenIdToken     -> do
-                        te@(t, _) <- doAccessToken client scope
-                        liftM2 (++) (tokenParams te) $ idTokenResponse Nothing (Just t)
-                    CodeIdToken      -> do
-                        code      <- codeResponse
-                        liftM2 (:) (codeParam code) $ idTokenResponse (Just code) Nothing
-                    CodeTokenIdToken -> do
-                        code      <- codeResponse
-                        te@(t, _) <- doAccessToken client scope
-                        liftM2 (:) (codeParam code) $ liftM2 (++) (tokenParams te)
-                            $ idTokenResponse (Just code) (Just t)
-
-                return $ T.cons separator $ TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
+        case responseType of
+            Code             -> liftM2 (:) (codeParam =<< codeResponse) $ scopeParam scope
+            Token            -> tokenResponse
+            IdTokenResponse  -> idTokenResponse Nothing Nothing
+            CodeToken        -> liftM2 (:) (codeParam =<< codeResponse) tokenResponse
+            -- The remaining hybrid responses need changes to the id_token
+            -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
+            TokenIdToken     -> do
+                te@(t, _) <- doAccessToken client scope
+                liftM2 (++) (tokenParams te) $ idTokenResponse Nothing (Just t)
+            CodeIdToken      -> do
+                code      <- codeResponse
+                liftM2 (:) (codeParam code) $ idTokenResponse (Just code) Nothing
+            CodeTokenIdToken -> do
+                code      <- codeResponse
+                te@(t, _) <- doAccessToken client scope
+                liftM2 (:) (codeParam code) $ liftM2 (++) (tokenParams te)
+                    $ idTokenResponse (Just code) (Just t)
 
     doCode client scope nonce uri = do
         code <- genCode
@@ -117,64 +122,64 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         s  -> [("scope", TE.encodeUtf8 $ T.intercalate " " $ map scopeName s)]
 
 
-    getAuthorizationRequest :: Client -> Either Text (Maybe Text, ResponseType, [Scope], Maybe Text)
-    getAuthorizationRequest client = do
+    getAuthorizationRequest redirectBase client = do
         let stateParam = maybeParam env "state"
             st         = either (const Nothing) id stateParam
-            separator  = case getResponseType of
-                             Right Code -> '?'
-                             Right _    -> '#'
-                             Left  _    -> '?' -- TODO: Use client grant/response types
+            sep        = case getResponseType of
+                             Right rt -> separator rt
+                             _        -> '?' -- TODO: Use client grant/response types
+
+            clientRedirect e = ClientRedirectError $ T.concat [redirectBase, errorURL sep st e]
+            invalidRequest m = clientRedirect $ InvalidRequest m
 
         -- All that was just to work out how to handle the error.
         -- Now check the actual parameter values.
-        either (Left . errorURL separator st) return $ do
-            state          <- either (Left . InvalidRequest) return stateParam
-            responseType   <- getResponseType
-            checkResponseType client responseType
-            maybeScope     <- either (Left . InvalidRequest) (return . fmap splitOnSpace) $ maybeParam env "scope"
-            nonce          <- either (Left . InvalidRequest) return $ maybeParam env "nonce"
-            requestedScope <- checkScope client $ fmap (map scopeFromName) maybeScope
-            let isOpenID   = OpenID `elem` requestedScope
+        state          <- stateParam `failW` invalidRequest
+        responseType   <- either (left . clientRedirect) return $ getResponseType
+        unless (checkResponseType client responseType) $ left $ clientRedirect UnauthorizedClient
+        maybeScope     <- maybeParam env "scope" `failW` invalidRequest >>= return . (fmap splitOnSpace)
+        nonce          <- maybeParam env "nonce" `failW` invalidRequest
+        requestedScope <- checkScope client maybeScope `failW` invalidRequest
+        let isOpenID   = OpenID `elem` requestedScope
 
-            -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
-            when (responseType == Token && isOpenID) $
-                Left $ InvalidRequest "openid scope cannot be user with 'token' response type"
-            -- Implicit and Hybrid OpenID requests require a nonce
-            -- http://openid.net/specs/openid-connect-core-1_0.html#ImplicitAuthRequest
-            -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
-            when (responseType /= Code  && isOpenID && isNothing nonce) $
-                Left $ InvalidRequest "A nonce is required for this response type"
+        -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
+        when (responseType == Token && isOpenID) $
+            left $ invalidRequest "openid scope cannot be user with 'token' response type"
+        -- Implicit and Hybrid OpenID requests require a nonce
+        -- http://openid.net/specs/openid-connect-core-1_0.html#ImplicitAuthRequest
+        -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
+        when (responseType /= Code  && isOpenID && isNothing nonce) $
+            left $ invalidRequest "A nonce is required for this response type"
 
-            return (state, responseType, requestedScope, nonce)
+        return (state, responseType, requestedScope, nonce)
 
     getResponseType :: Either AuthorizationError ResponseType
     getResponseType = do
         rtParam <- either (Left . InvalidRequest) return $ requireParam env "response_type"
         maybe  (Left UnsupportedResponseType) return $ lookup (normalize rtParam) responseTypes
 
+
     -- TODO: Create a type "CheckResponseType" and use it to allow configuration of
     -- supported response types and build openid configuration
     checkResponseType client rt =
-        let checkGrant gt = unless (gt `elem` authorizedGrantTypes client) $ Left UnauthorizedClient
+        let checkGrant gt = gt `elem` authorizedGrantTypes client
         in  case rt of
                 Code            -> checkGrant AuthorizationCode
                 Token           -> checkGrant Implicit
                 IdTokenResponse -> checkGrant Implicit
                 TokenIdToken    -> checkGrant Implicit
-                _               -> checkGrant AuthorizationCode >> checkGrant Implicit
+                _               -> checkGrant AuthorizationCode && checkGrant Implicit
 
     defaultRedirectURI client = head $ redirectURIs client
 
     -- scopes <- validate scopes are allowed for client in question.
     -- Calculate intersection with user scopes
-    checkScope client maybeScope = case checkClientScope client maybeScope of
-        Right s -> Right s
-        Left  m -> Left $ InvalidRequest m
+    checkScope client maybeScope = checkClientScope client $ fmap (map scopeFromName) maybeScope
 
     normalize = T.intercalate " " . sort . splitOnSpace
     splitOnSpace = T.splitOn " "
 
+    separator responseType = if responseType == Code then '?' else '#'
 
     -- "Evil client" checking
     -- Get and checks the parameters for which an error should not be reported
@@ -182,19 +187,23 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     -- If a redirect_uri parameter is supplied it must be valid.
     -- If none is supplied, the default for the client will be used.
     getClientAndRedirectURI = do
-        cid    <- either (left . InvalidClient) return $ requireParam env "client_id"
-        uri    <- either (\_ -> left InvalidRedirectUri) return $ maybeParam env "redirect_uri"
-        client <- maybe (left $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
+        cid    <- requireParam env "client_id" `failW` (MaliciousClient . InvalidClient)
+        uri    <- maybeParam env "redirect_uri" `failW` (const $ MaliciousClient InvalidRedirectUri)
+        client <- maybe (left $ MaliciousClient $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
         validateRedirectURI client uri
         right (client, uri)
       where
         -- | Check the redirectURI is registered for the client
         validateRedirectURI _ Nothing = return ()
         validateRedirectURI client (Just uri)
-          | T.any (== '#') uri        = left FragmentInUri
+          | T.any (== '#') uri        = left $ MaliciousClient $ FragmentInUri
           | otherwise                 = if uri `elem` redirectURIs client
                                             then right ()
-                                            else left InvalidRedirectUri
+                                            else left $ MaliciousClient  InvalidRedirectUri
+
+    failW :: Monad m => Either Text a -> (Text -> e) -> EitherT e m a
+    failW (Right a) _ = return a
+    failW (Left m)  f = left $ f m
 
 errorURL :: Char -> Maybe Text -> AuthorizationError -> Text
 errorURL separator state authzError = T.cons separator $ TE.decodeUtf8 qs

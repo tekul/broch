@@ -311,8 +311,10 @@ testBroch issuer pool = do
 
         response <- processAuthorizationRequest getClient (liftIO generateCode) createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now
         case response of
-            Left e    -> evilClientError e
-            Right url -> redirect $ L.fromStrict url
+            Right url                      -> redirect $ L.fromStrict url
+            Left (MaliciousClient e)       -> evilClientError e
+            Left (ClientRedirectError url) -> redirect $ L.fromStrict url
+            Left RequiresReauthentication  -> error "Reauth not supported yet" -- Cache request and redirect to login
 
       where
         evilClientError err = status badRequest400 >> text (L.pack $ show err)
