@@ -49,7 +49,8 @@ data AuthorizationError = InvalidRequest Text
 type GenerateCode m = m ByteString
 type ResourceOwnerApproval m s = s -> Client -> [Scope] -> POSIXTime -> m [Scope]
 
-processAuthorizationRequest :: (Monad m, Subject s) => LoadClient m
+processAuthorizationRequest :: (Monad m, Subject s)
+                            => LoadClient m
                             -> GenerateCode m
                             -> CreateAuthorization m s
                             -> ResourceOwnerApproval m s
@@ -126,7 +127,6 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         [] -> []
         s  -> [("scope", TE.encodeUtf8 $ T.intercalate " " $ map scopeName s)]
 
-
     getAuthorizationRequest redirectBase client = do
         let stateParam = maybeParam env "state"
             st         = either (const Nothing) id stateParam
@@ -140,9 +140,9 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         -- All that was just to work out how to handle the error.
         -- Now check the actual parameter values.
         state          <- stateParam `failW` invalidRequest
-        responseType   <- either (left . clientRedirect) return $ getResponseType
+        responseType   <- getResponseType `failW` clientRedirect
         unless (checkResponseType client responseType) $ left $ clientRedirect UnauthorizedClient
-        maybeScope     <- maybeParam env "scope" `failW` invalidRequest >>= return . (fmap splitOnSpace)
+        maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` invalidRequest
         nonce          <- maybeParam env "nonce" `failW` invalidRequest
         maxAge         <- getMaxAge `failW` invalidRequest
         requestedScope <- checkScope client maybeScope `failW` invalidRequest
@@ -202,7 +202,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     -- If none is supplied, the default for the client will be used.
     getClientAndRedirectURI = do
         cid    <- requireParam env "client_id" `failW` (MaliciousClient . InvalidClient)
-        uri    <- maybeParam env "redirect_uri" `failW` (const $ MaliciousClient InvalidRedirectUri)
+        uri    <- maybeParam env "redirect_uri" `failW` const (MaliciousClient InvalidRedirectUri)
         client <- maybe (left $ MaliciousClient $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
         validateRedirectURI client uri
         right (client, uri)
@@ -210,12 +210,12 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         -- | Check the redirectURI is registered for the client
         validateRedirectURI _ Nothing = return ()
         validateRedirectURI client (Just uri)
-          | T.any (== '#') uri        = left $ MaliciousClient $ FragmentInUri
+          | T.any (== '#') uri        = left $ MaliciousClient FragmentInUri
           | otherwise                 = if uri `elem` redirectURIs client
                                             then right ()
                                             else left $ MaliciousClient  InvalidRedirectUri
 
-    failW :: Monad m => Either Text a -> (Text -> e) -> EitherT e m a
+    failW :: Monad m => Either e1 a -> (e1 -> e2) -> EitherT e2 m a
     failW (Right a) _ = return a
     failW (Left m)  f = left $ f m
 

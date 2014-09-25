@@ -19,7 +19,7 @@ data TestUser = TU SubjectId
 
 instance Subject TestUser where
     subjectId (TU s) = s
-    authTime         = const now
+    authTime  _      = now
 
 doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken (TU "cat") env now
 
@@ -35,21 +35,21 @@ createIdToken = undefined
 createAccessToken = undefined
 
 invalidClient   = Left . MaliciousClient . InvalidClient
-invalidRedirect = Left $ MaliciousClient $ InvalidRedirectUri
+invalidRedirect = Left $ MaliciousClient InvalidRedirectUri
 clientError     = Left . ClientRedirectError
 
 evilClientErrorSpec =
     describe "A potentially malicious client request" $ do
       it "returns an error if client_id is unknown" $
-        doAuthz (Map.insert "client_id" ["badclient"] env) @?= (invalidClient "Client does not exist")
+        doAuthz (Map.insert "client_id" ["badclient"] env) @?= invalidClient "Client does not exist"
       it "returns an error if client_id is missing" $
-        doAuthz (Map.delete "client_id" env) @?= (invalidClient "Missing client_id")
+        doAuthz (Map.delete "client_id" env) @?= invalidClient "Missing client_id"
       it "returns an error if redirect_uri doesn't match client's" $
         doAuthz (Map.insert "redirect_uri" ["https://badclient"] env) @?= invalidRedirect
       it "returns an error if redirect_uri is duplicated" $
         doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] env) @?= invalidRedirect
       it "returns an error if redirect_uri contains a fragment" $
-        doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] env) @?= (Left $ MaliciousClient $ FragmentInUri)
+        doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] env) @?= (Left $ MaliciousClient FragmentInUri)
   where
     env = createEnv
 
