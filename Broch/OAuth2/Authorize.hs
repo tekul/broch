@@ -65,7 +65,8 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     let redirectURI = fromMaybe (defaultRedirectURI client) uri
 
     -- Decode the request, and fail with a client redirect if invalid
-    (state, responseType, requestedScope, nonce) <- getAuthorizationRequest redirectURI client
+    (state, responseType, requestedScope, nonce, maxAge) <- getAuthorizationRequest redirectURI client
+    when (authRequired maxAge) $ left RequiresReauthentication
 
     scope <- lift $ resourceOwnerApproval user client requestedScope now
 
@@ -75,6 +76,9 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
 
     return $ T.concat [redirectURI, T.cons (separator responseType) qs]
   where
+    authRequired Nothing       = False
+    authRequired (Just maxAge) = now - authTime user > fromIntegral maxAge
+
     authorizationResponse responseType client scope nonce uri = do
         let codeResponse    = doCode client scope nonce uri
             tokenResponse   = tokenParams =<< doAccessToken client scope
@@ -140,6 +144,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         unless (checkResponseType client responseType) $ left $ clientRedirect UnauthorizedClient
         maybeScope     <- maybeParam env "scope" `failW` invalidRequest >>= return . (fmap splitOnSpace)
         nonce          <- maybeParam env "nonce" `failW` invalidRequest
+        maxAge         <- getMaxAge `failW` invalidRequest
         requestedScope <- checkScope client maybeScope `failW` invalidRequest
         let isOpenID   = OpenID `elem` requestedScope
 
@@ -152,7 +157,15 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         when (responseType /= Code  && isOpenID && isNothing nonce) $
             left $ invalidRequest "A nonce is required for this response type"
 
-        return (state, responseType, requestedScope, nonce)
+        return (state, responseType, requestedScope, nonce, maxAge)
+
+    getMaxAge = do
+        maxAge <- maybeParam env "max_age"
+        case maxAge of
+            Nothing -> return Nothing
+            Just a  -> do
+                maxAgeSeconds <- maybe (Left "Invalid max_age parameter") Right (readMay $ T.unpack a :: Maybe Int)
+                return $ Just maxAgeSeconds
 
     getResponseType :: Either AuthorizationError ResponseType
     getResponseType = do

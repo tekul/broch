@@ -314,7 +314,7 @@ testBroch issuer pool = do
             Right url                      -> redirect $ L.fromStrict url
             Left (MaliciousClient e)       -> evilClientError e
             Left (ClientRedirectError url) -> redirect $ L.fromStrict url
-            Left RequiresReauthentication  -> error "Reauth not supported yet" -- Cache request and redirect to login
+            Left RequiresReauthentication  -> cacheLocation csKey >> redirectFull "/login"
 
       where
         evilClientError err = status badRequest400 >> text (L.pack $ show err)
