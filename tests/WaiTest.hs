@@ -186,6 +186,6 @@ request content req = do
 
 addHeader hdr r@Request { requestHeaders = hs } = r { requestHeaders = hdr : hs }
 
-assertEqual :: (Eq a) => String -> a -> a -> WaiTest ()
-assertEqual msg a b = liftIO $ HUnit.assertBool msg (a == b)
+assertEqual :: (Show a, Eq a) => String -> a -> a -> WaiTest ()
+assertEqual msg a b = liftIO $ HUnit.assertBool (msg ++ ": " ++ show a ++ " /= " ++ show b) (a == b)
 

@@ -71,8 +71,9 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
 
     -- Create the successful response redirect
     responseParams <- lift $ authorizationResponse responseType client scope nonce uri
+    let qs = TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
 
-    return $ T.cons (separator responseType) $ TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
+    return $ T.concat [redirectURI, T.cons (separator responseType) qs]
   where
     authorizationResponse responseType client scope nonce uri = do
         let codeResponse    = doCode client scope nonce uri

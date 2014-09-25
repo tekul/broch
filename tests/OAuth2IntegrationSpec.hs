@@ -68,6 +68,8 @@ authzRequest cid redirectUri scopes rt extraParams = do
     loginIfRequired "cat" "cat"
     statusIsGood
     approveIfRequired
+    l <- fmap (B.takeWhile (\s -> s /= '?' && s /= '#')) getLocationHeader
+    assertEqual "Redirect location should match URI" (TE.decodeUtf8 l) redirectUri
     q <- getLocationParams
     return $ AuthzResponse (lookup "id_token" q) (lookup "access_token" q) (TE.decodeUtf8 <$> lookup "code" q)
 
