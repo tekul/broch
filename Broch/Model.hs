@@ -104,6 +104,7 @@ type CreateAccessToken m = Maybe SubjectId    -- ^ The end user (resource owner)
                         -> m (ByteString, Maybe ByteString, TokenTTL)
 
 type CreateIdToken m = SubjectId        -- ^ The authenticated user
+                    -> POSIXTime        -- ^ The authentication time
                     -> Client           -- ^ The client (audience)
                     -> Maybe Text       -- ^ The client submitted nonce
                     -> POSIXTime        -- ^ Current time
@@ -122,6 +123,7 @@ data Authorization = Authorization
     , authzScope :: ![Scope]
     , authzNonce :: !(Maybe Text)
     , authzRedirectUri :: !(Maybe Text)
+    , authzAuthTime :: !POSIXTime
     } deriving (Eq, Show)
 
 data AccessGrant = AccessGrant

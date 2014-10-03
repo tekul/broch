@@ -120,7 +120,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         return [("access_token", token), ("token_type", "bearer"), ("expires_in", expires)]
 
     doIdToken client nonce code accessToken = do
-        t <- createIdToken (subjectId user) client nonce now code accessToken
+        t <- createIdToken (subjectId user) (authTime user) client nonce now code accessToken
         return [("id_token", t)]
 
     scopeParam scope = return $ case scope of

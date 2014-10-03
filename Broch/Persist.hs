@@ -42,6 +42,7 @@ AuthCode sql=authz_code
   scope  [Text]
   nonce  Text Maybe
   uri    Text Maybe
+  authTime UTCTime
   UniqueCode code
   deriving Show
 
@@ -79,17 +80,17 @@ User
   deriving Show
 |]
 
-createAuthorization :: (PersistStore m, Functor m)
+createAuthorization :: (PersistStore m, Functor m, M.Subject s)
                     => Text
-                    -> Text
+                    -> s
                     -> M.Client
                     -> POSIXTime
                     -> [M.Scope]
                     -> Maybe Text
                     -> Maybe Text
                     -> m ()
-createAuthorization code userId client now scope nonce mURI =
-    void $ insert $ AuthCode code userId (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI
+createAuthorization code user client now scope nonce mURI =
+    void $ insert $ AuthCode code (M.subjectId user) (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI (posixSecondsToUTCTime $ M.authTime user)
 
 getAuthorizationByCode :: (PersistUnique m, Functor m)
                        => Text
@@ -98,9 +99,9 @@ getAuthorizationByCode code = do
     record <- getBy $ UniqueCode code
     case record of
         Nothing -> return Nothing
-        Just (Entity key (AuthCode _ uid client issuedAt scope nonce uri)) -> do
+        Just (Entity key (AuthCode _ uid client issuedAt scope nonce uri authTime)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (IntDate $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri
+            return $ Just $ M.Authorization uid client (IntDate $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri (utcTimeToPOSIXSeconds authTime)
 
 createApproval :: (PersistStore m, Functor m)
                => M.Approval

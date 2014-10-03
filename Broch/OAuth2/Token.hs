@@ -105,7 +105,7 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             let scp = authzScope authz
                 usr = authzSubject authz
             idt <- if OpenID `elem` scp
-                       then fmap Just $ lift $ createIdToken usr client (authzNonce authz) now Nothing Nothing
+                       then fmap Just $ lift $ createIdToken usr (authzAuthTime authz) client (authzNonce authz) now Nothing Nothing
                        else return Nothing
             return (Just usr, idt, AuthorizationCode, scp)
 
@@ -171,12 +171,13 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
     eitherParam  f n  = either (left . InvalidRequest) right $ f env n
 
 
-validateAuthorization :: (Monad m) => Authorization
+validateAuthorization :: (Monad m)
+                      => Authorization
                       -> Client
                       -> NominalDiffTime
                       -> Maybe Text
                       -> EitherT TokenError m ()
-validateAuthorization (Authorization _ issuedTo (IntDate issuedAt) _ _ authzURI) client now mURI
+validateAuthorization (Authorization _ issuedTo (IntDate issuedAt) _ _ authzURI _) client now mURI
     | mURI /= authzURI = left . InvalidGrant $ case mURI of
                                                   Nothing -> "Missing redirect_uri"
                                                   _       -> "Invalid redirect_uri"

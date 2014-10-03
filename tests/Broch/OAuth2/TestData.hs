@@ -29,7 +29,7 @@ withTestRNG :: (Monad m) => WithCPRG m RNG
 withTestRNG f = return $ fst $ f RNG
 
 -- Authorization from user "cat" to app
-catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app")
+catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app") (now - 60)
 
 loadAuthorization "catcode" = return $ Just catAuthorization
 loadAuthorization "catoic"  = return $ Just $ catAuthorization {authzScope = [OpenID]}

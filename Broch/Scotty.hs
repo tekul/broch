@@ -133,7 +133,7 @@ testBroch issuer pool = do
     let getClient :: LoadClient (ActionT Except BrochM)
         getClient = liftIO . runDB . BP.getClientById
     let createAuthorization code usr clnt now scp n uri = liftIO $ runDB $
-                            BP.createAuthorization code (subjectId usr) clnt now scp n uri
+                            BP.createAuthorization code usr clnt now scp n uri
 
     let getAuthorization = liftIO . runDB . BP.getAuthorizationByCode
     let authenticateResourceOwner username password = do
@@ -167,8 +167,8 @@ testBroch issuer pool = do
             return client
 
         createIdToken :: CreateIdToken (ActionT Except BrochM)
-        createIdToken uid client nons now code aToken = do
-            token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 kPr issuer (clientId client) nons uid now code aToken
+        createIdToken uid aTime client nons now code aToken = do
+            token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 kPr issuer (clientId client) nons uid aTime now code aToken
             either (const $ error "Failed to create IdToken") return token
 
         hashPassword p = do

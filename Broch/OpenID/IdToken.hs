@@ -34,6 +34,7 @@ data IdToken = IdToken
     , aud     :: ![Text]
     , exp     :: !IntDate
     , iat     :: !IntDate
+    , auth_time  :: !IntDate
     , nonce   :: !(Maybe Text)
     , acr     :: !(Maybe Text)
     , amr     :: !(Maybe [Text])
@@ -63,17 +64,19 @@ createIdTokenJws :: CPRG g
                  -> ClientId                      -- Audience
                  -> Maybe Text                    -- Authorization request nonce
                  -> SubjectId                     -- Subject
+                 -> POSIXTime                     -- Authentication time
                  -> POSIXTime                     -- Current time
                  -> Maybe ByteString
                  -> Maybe ByteString
                  -> (Either JwtError ByteString, g)
-createIdTokenJws rng a key issuer clid n subject now code accessToken =
+createIdTokenJws rng a key issuer clid n subject authenticatedAt now code accessToken =
     rsaEncode rng a key $ BL.toStrict . encode $ IdToken
         { iss = issuer
         , sub = subject
         , aud = [clid]
         , exp = IntDate $ now + idTokenTTL
         , iat = IntDate now
+        , auth_time = IntDate authenticatedAt
         , nonce = n
         , acr = Nothing
         , amr = Nothing
