@@ -5,15 +5,19 @@ module Broch.OAuth2.TokenSpec where
 
 import Control.Applicative ((<$>))
 import Control.Monad.Identity
+import Data.Aeson (encode)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Lazy as BL
 import Data.Map (Map)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, fromJust)
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Jose.Jwt (IntDate(..))
+import Jose.Jwt
+import Jose.Jwa
+import qualified Jose.Jws as Jws
 
 import Test.Hspec
 import Test.HUnit hiding (Test)
@@ -114,17 +118,57 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
 
       it "returns invalid_request when mixing Basic and client_secret_post authentication" $ do
         let env = Map.insert "client_secret" ["appsecret"] authCodeEnv
-        doAuth env (basicHeader "app" "appsecret") appClient @?= (Left $ CA.InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data")
+        doAuth env (basicHeader "app" "appsecret") appClient @?= messedUp
 
       it "returns invalid_client when posted client secret is wrong" $ do
         let env = Map.fromList [("client_id", ["app"]), ("client_secret", ["wrong"])] `Map.union` authCodeEnv
         doAuth env Nothing appClient @?= Left CA.InvalidClient
+
+    describe "client_secret_jwt authentication" $ do
+      it "returns invalid_request for invalid client_assertion_type" $ do
+        let env = Map.fromList [("client_assertion_type", ["urn:ietf:params:oauth:nonsense"])] `Map.union` authCodeEnv
+        doAuth env Nothing appClient @?= messedUp
+
+      it "rejectd audience which is not the OP" $
+        pendingWith "aud check not implemented yet"
+
+      it "authenticates client with a valid assertion" $ do
+        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 appJwt])] `Map.union` authCodeEnv
+        doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Right "app"
+
+      it "returns invalid_client if client is not registered to use client_secret_jwt" $ do
+        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 appJwt])] `Map.union` authCodeEnv
+        doAuth env Nothing appClient @?= Left CA.InvalidClient
+
+      it "returns invalid_client if client is registered to use diffferent alg" $ do
+        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 appJwt])] `Map.union` authCodeEnv
+        doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt, tokenEndpointAuthAlg = Just HS512} @?= Left CA.InvalidClient
+
+      it "returns invalid_client if token is not signed with client secret" $ do
+        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 badSig])] `Map.union` authCodeEnv
+        doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Left CA.InvalidClient
   where
+    appKey       = TE.encodeUtf8 $ fromJust $ clientSecret appClient
+    Right appJwt = Jws.hmacEncode HS256 appKey $ BL.toStrict $ encode appClaims
+    Right badSig = Jws.hmacEncode HS256 "wrongkey" $ BL.toStrict $ encode appClaims
+    appClaims    = clientClaims appClient ["anissuer"]
+
+    assertionTypeParam = ("client_assertion_type", ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"])
+    messedUp = Left $ CA.InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
     doAuth env hdr clnt = fmap clientId $ runIdentity $ CA.authenticateClient env hdr now (loadClient clnt) withTestRNG
     loadClient c name
       | clientId c == name = return $ Just c
       | otherwise          = return Nothing
 
+clientClaims client aud = JwtClaims
+    { jwtIss = Just $ clientId client
+    , jwtSub = Just $ clientId client
+    , jwtAud = Just aud
+    , jwtExp = Just $ IntDate $ now + 3600
+    , jwtNbf = Nothing
+    , jwtIat = Just $ IntDate now
+    , jwtJti = Just "jwtid"
+    }
 
 clientCredentialsTokenRequestSpec =
     describe "A client credentials token request" $ do
