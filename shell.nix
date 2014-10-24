@@ -6,7 +6,7 @@ pkgs = import <nixpkgs> {};
       joseJwt = self.callPackage ../jose-jwt {};
       bcrypt = self.callPackage ../nix-custom/bcrypt/0.0.5.nix {};
       dataDefaultGenerics = self.callPackage ../nix-custom/dataDefaultGenerics/0.3.nix {};
-      mtl = self.callPackage ../nix-custom/mtl/2.1.3.1.nix {};
+      -- mtl = self.callPackage ../nix-custom/mtl/2.1.3.1.nix {};
     };
   };
 
@@ -16,7 +16,6 @@ pkgs.lib.overrideDerivation haskellPackages.broch (attrs: {
 
   shellHook =
     ''
-      alias ghci='ghci -XOverloadedStrings -hide-package network-2.5.0.0 -hide-package crypto-api'
+      alias ghci='ghci -XOverloadedStrings -hide-package crypto-api'
     '';
 })
-
