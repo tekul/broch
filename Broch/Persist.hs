@@ -18,10 +18,13 @@ where
 
 import           Control.Applicative
 import           Control.Monad (void)
+import           Control.Monad.IO.Class
+import           Control.Monad.Trans.Reader (ReaderT)
 import           Data.Aeson (encode, decodeStrict)
 import           Data.ByteString.Lazy (toStrict)
 import           Data.Maybe (fromJust)
-import           Database.Persist (PersistUnique, PersistStore, insert, getBy, delete, deleteBy, Entity(..))
+import           Database.Persist (insert, getBy, delete, deleteBy, Entity(..))
+import           Database.Persist.Sql (SqlBackend)
 import           Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -80,7 +83,7 @@ User
   deriving Show
 |]
 
-createAuthorization :: (PersistStore m, Functor m, M.Subject s)
+createAuthorization :: (MonadIO m, Functor m, M.Subject s)
                     => Text
                     -> s
                     -> M.Client
@@ -88,13 +91,13 @@ createAuthorization :: (PersistStore m, Functor m, M.Subject s)
                     -> [M.Scope]
                     -> Maybe Text
                     -> Maybe Text
-                    -> m ()
+                    -> ReaderT SqlBackend m ()
 createAuthorization code user client now scope nonce mURI =
     void $ insert $ AuthCode code (M.subjectId user) (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI (posixSecondsToUTCTime $ M.authTime user)
 
-getAuthorizationByCode :: (PersistUnique m, Functor m)
+getAuthorizationByCode :: (MonadIO m)
                        => Text
-                       -> m (Maybe M.Authorization)
+                       -> ReaderT SqlBackend m (Maybe M.Authorization)
 getAuthorizationByCode code = do
     record <- getBy $ UniqueCode code
     case record of
@@ -103,17 +106,17 @@ getAuthorizationByCode code = do
             delete key
             return $ Just $ M.Authorization uid client (IntDate $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri (utcTimeToPOSIXSeconds authTime)
 
-createApproval :: (PersistStore m, Functor m)
+createApproval :: (MonadIO m, Functor m)
                => M.Approval
-               -> m ()
+               -> ReaderT SqlBackend m ()
 createApproval (M.Approval uid clientId scope (IntDate expires)) =
     void $ insert $ Approval uid clientId (map M.scopeName scope) (posixSecondsToUTCTime expires)
 
-getApproval :: PersistUnique m
+getApproval :: (MonadIO m)
             => Text
             -> Text
             -> POSIXTime
-            -> m (Maybe M.Approval)
+            -> ReaderT SqlBackend m (Maybe M.Approval)
 getApproval uid cid now = do
     record <- getBy $ UniqueApproval uid cid
     case record of
@@ -124,21 +127,21 @@ getApproval uid cid now = do
                 then delete key >> return Nothing
                 else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (IntDate posixExpiry)
 
-deleteApproval :: PersistUnique m
+deleteApproval :: (MonadIO m)
                => Text
                -> Text
-               -> m ()
+               -> ReaderT SqlBackend m ()
 deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 
-createClient :: (PersistStore m, Functor m)
+createClient :: (MonadIO m, Functor m)
              => M.Client
-             -> m ()
+             -> ReaderT SqlBackend m ()
 createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg kuri ks) = let ks' = (TE.decodeUtf8 . toStrict . encode) <$> ks
    in  void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg) kuri ks'
 
-getClientById :: PersistUnique m
+getClientById :: (MonadIO m)
               => Text
-              -> m (Maybe M.Client)
+              -> ReaderT SqlBackend m (Maybe M.Client)
 getClientById cid = do
     record <- getBy $ UniqueClientId cid
     case record of
@@ -151,26 +154,26 @@ getClientById cid = do
 
             return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg kuri ks'
 
-createUser :: (PersistStore m, Functor m)
+createUser :: (MonadIO m, Functor m)
            => Text
            -> Text
            -> ScimUser
-           -> m ()
+           -> ReaderT SqlBackend m ()
 createUser uid pass scimUser =
     void $ insert $ User uid (scimUserName scimUser) pass $ TE.decodeUtf8 $ toStrict $ encode scimUser
 
-getUserById :: PersistUnique m
+getUserById :: (MonadIO m)
             => M.SubjectId
-            -> m (Maybe ScimUser)
+            -> ReaderT SqlBackend m (Maybe ScimUser)
 getUserById uid = do
     record <- getBy $ UniqueUserId uid
     case record of
         Nothing -> return Nothing
         Just (Entity _ (User _ _ _ scim)) -> return $ decodeStrict $ TE.encodeUtf8 scim
 
-getUserByUsername :: PersistUnique m
+getUserByUsername :: (MonadIO m)
                   => Text
-                  -> m (Maybe (M.SubjectId, Text))
+                  -> ReaderT SqlBackend m (Maybe (M.SubjectId, Text))
 getUserByUsername name = do
     record <- getBy $ UniqueUserName name
     case record of

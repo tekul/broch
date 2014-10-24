@@ -5,6 +5,7 @@ module OAuth2IntegrationSpec where
 
 import Control.Applicative ((<$>))
 import Control.Monad (when)
+import Control.Monad.Logger
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as B
 import Data.Aeson (decode)
@@ -15,6 +16,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX
 import Database.Persist.Sqlite (createSqlitePool)
 import Network.URI (uriPath)
+import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Test (SResponse(..))
 import Test.Hspec
 
@@ -89,7 +91,10 @@ tokenRequest cid secret redirectUri gt code = do
         Nothing  -> liftIO $ print r >> (fail $ "Failed to JSON decode response body")
         Just atr -> return atr
 
-testapp = createSqlitePool ":memory:" 2 >>= testBroch "http://testapp" >>= return -- . logStdoutDev
+testapp = do
+    pool <- runNoLoggingT $ createSqlitePool ":memory:" 2
+    testBroch "http://testapp" pool
+    -- return $ logStdoutDev app
 
 approveIfRequired :: WaiTest ()
 approveIfRequired = withResponse $ \r ->
@@ -110,4 +115,3 @@ approveIfRequired = withResponse $ \r ->
 loginIfRequired username password = withOptionalRedirect "/login" $ login username password >> followRedirect
 
 login username pass = post "/login" [("username", username), ("password", pass)]
-
