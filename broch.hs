@@ -12,18 +12,23 @@ import Network.Wai.Handler.WarpTLS
 import Network.TLS
 import System.Directory
 import System.IO.Error hiding (catch)
+import Web.ClientSession (getDefaultKey)
 
-import Broch.Scotty
+import Broch.Server
+import Broch.Server.Internal
+import Broch.Server.Session (defaultLoadSession)
 
 main :: IO ()
 main = do
     removeFile "broch.db3" `catch` eek
+    csKey  <- getDefaultKey
 
-    pool <- runNoLoggingT $ createSqlitePool "broch.db3" 2
-    waiApp <- liftIO $ testBroch "http://broch.io:3000" pool
+    pool   <- runNoLoggingT $ createSqlitePool "broch.db3" 2
+    router <- testBroch "http://localhost:3000" pool
     let tlsConfig = tlsSettings "broch.crt" "broch.key"
     let config    = defaultSettings
     -- runTLS tlsConfig config $ logStdoutDev waiApp
+    let waiApp = routerToApp (defaultLoadSession 3600 csKey) "http://localhost:3000" router
     run 3000 $ logStdoutDev waiApp
   where
     eek e

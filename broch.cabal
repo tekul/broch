@@ -3,8 +3,8 @@ Version:            0.1
 Synopsis:           OAuth2/OpenID Connect Server
 Description:
   .
-  Implementation of a (web server-agnostic) OAuth2 and OpenID
-  Connect Provider library with a scotty server implementation.
+  A (web server-agnostic) OAuth2 and OpenID Connect Provider
+  library with a WAI-based server implementation.
 
 Author:             Luke Taylor <tekul.hs@gmail.com>
 Maintainer:         Luke Taylor <tekul.hs@gmail.com>
@@ -32,17 +32,20 @@ Library
                     , Broch.OpenID.Registration
                     , Broch.OpenID.UserInfo
                     , Broch.Persist
-                    , Broch.Scotty
+                    , Broch.Server
+                    , Broch.Server.Internal
+                    , Broch.Server.Session
   Other-Modules:      Broch.Scim
   Build-Depends:      base >= 4 && < 5
                     , time
                     , errors >= 1.4
-                    , mtl >= 2.1
+                    , mtl >= 2.1.3.1
                     , blaze-builder >= 0.3
                     , blaze-html >= 0.7
                     , bcrypt >= 0.0.4
                     , bytestring >= 0.10
                     , byteable   >= 0.1.1
+                    , cereal     >= 0.4
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
@@ -61,13 +64,14 @@ Library
                     , base64-bytestring >= 1
                     , persistent >= 2.1 && < 3
                     , persistent-template >= 2.1 && < 3
-                    , scotty >= 0.7.2
                     , stm >= 2.4
                     , transformers >= 0.3
                     , unordered-containers >= 0.2
                     , uuid >= 1.3
                     , monad-logger >= 0.3
                     , wai >= 3.0.0.2
+                    , wai-extra >= 3
+                    , warp
   Ghc-Options:        -Wall
 
 Test-suite tests
@@ -85,6 +89,7 @@ Test-suite tests
                     , base
                     , blaze-builder >= 0.3
                     , case-insensitive
+                    , clientsession
                     , containers
                     , cookie
                     , deepseq

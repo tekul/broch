@@ -19,9 +19,12 @@ import Network.URI (uriPath)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Test (SResponse(..))
 import Test.Hspec
+import Web.ClientSession (getDefaultKey)
 
 import Broch.Model
-import Broch.Scotty
+import Broch.Server
+import Broch.Server.Internal
+import qualified Broch.Server.Session as Session
 import Broch.OAuth2.Token (AccessTokenResponse(..))
 import WaiTest
 
@@ -93,8 +96,11 @@ tokenRequest cid secret redirectUri gt code = do
 
 testapp = do
     pool <- runNoLoggingT $ createSqlitePool ":memory:" 2
-    testBroch "http://testapp" pool
-    -- return $ logStdoutDev app
+    let issuer = "http://testapp"
+    csKey <- getDefaultKey
+    router <- testBroch issuer pool
+    let app = routerToApp (Session.defaultLoadSession 60 csKey) (TE.encodeUtf8 issuer) router
+    return $ logStdoutDev app
 
 approveIfRequired :: WaiTest ()
 approveIfRequired = withResponse $ \r ->
