@@ -44,12 +44,11 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
-import qualified Data.Text.Lazy.Encoding as TEL
 import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Parse
 import Text.Blaze.Html (Html)
-import Text.Blaze.Html.Renderer.Text
+import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
 
 import qualified Broch.Server.Session as S
 
@@ -199,7 +198,7 @@ json :: A.ToJSON a => a -> Handler ()
 json j = setContentType "application/json" >> (rawBytes $ A.encode j)
 
 html :: Html -> Handler ()
-html h = setContentType "text/html" >> (rawBytes . TEL.encodeUtf8 $ renderHtml h)
+html h = setContentType "text/html" >> (rawBytes $ renderHtml h)
 
 lookupSession :: ByteString -> Handler (Maybe ByteString)
 lookupSession k = gets $ \rs -> maybe Nothing (\s -> S.lookup s k) $ resSession rs
