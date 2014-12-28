@@ -218,7 +218,7 @@ testBroch issuer pool = do
                 Nothing -> redirect "/login"
                 Just u  -> do
                     now <- liftIO getCurrentTime
-                    insertSession userIdKey (B.pack $ show $ Usr u now)
+                    sessionInsert userIdKey (B.pack $ show $ Usr u now)
                     redirect =<< getCachedLocation "/home"
         _    -> methodNotAllowed
 
@@ -295,7 +295,7 @@ testBroch issuer pool = do
                     Left  bad           -> status badRequest400 >> json (toJSON bad)
 
     getAuthId = do
-        usr <- lookupSession userIdKey
+        usr <- sessionLookup userIdKey
         case usr of
             Just u  -> return $ (read $ T.unpack $ TE.decodeUtf8 u :: Usr)
             Nothing -> cacheLocation >> redirect "/login"
@@ -339,13 +339,13 @@ approvalPage client scopes now = H.docTypeHtml $ H.html $ do
     oneMonth = now + 30*aDay
 
 clearCachedLocation :: Handler ()
-clearCachedLocation = deleteSession "_loc"
+clearCachedLocation = sessionDelete "_loc"
 
 cacheLocation :: Handler ()
-cacheLocation = request >>= \r -> insertSession "_loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
+cacheLocation = request >>= \r -> sessionInsert "_loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
 
 getCachedLocation :: ByteString -> Handler ByteString
-getCachedLocation defaultUrl = liftM (maybe defaultUrl id) $ lookupSession "_loc"
+getCachedLocation defaultUrl = liftM (maybe defaultUrl id) $ sessionLookup "_loc"
 
 
 withBearerToken :: (B.ByteString -> IO (Maybe AccessGrant))

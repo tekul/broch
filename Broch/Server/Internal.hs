@@ -19,9 +19,9 @@ module Broch.Server.Internal
     , json
     , html
     , complete
-    , lookupSession
-    , insertSession
-    , deleteSession
+    , sessionLookup
+    , sessionInsert
+    , sessionDelete
     , invalidateSession
     , notFound
     , methodNotAllowed
@@ -193,15 +193,15 @@ json j = setContentType "application/json" >> (rawBytes $ A.encode j)
 html :: Html -> Handler ()
 html h = setContentType "text/html" >> (rawBytes $ renderHtml h)
 
-lookupSession :: ByteString -> Handler (Maybe ByteString)
-lookupSession k = gets $ \rs -> maybe Nothing (\s -> S.lookup s k) $ resSession rs
+sessionLookup :: ByteString -> Handler (Maybe ByteString)
+sessionLookup k = gets $ \rs -> maybe Nothing (\s -> S.lookup s k) $ resSession rs
 
-insertSession :: ByteString -> ByteString -> Handler ()
-insertSession k v = modify $ \rs -> let session = maybe S.empty id $ resSession rs
+sessionInsert :: ByteString -> ByteString -> Handler ()
+sessionInsert k v = modify $ \rs -> let session = maybe S.empty id $ resSession rs
                                     in  rs { resSession = Just $ S.insert session k v }
 
-deleteSession :: ByteString -> Handler ()
-deleteSession k = do
+sessionDelete :: ByteString -> Handler ()
+sessionDelete k = do
     rs <- get
     case resSession rs of
         Nothing -> return ()
