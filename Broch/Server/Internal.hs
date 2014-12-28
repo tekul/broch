@@ -129,15 +129,8 @@ toMap = M.unionsWith (++) . map (\(x, y) -> M.singleton (TE.decodeUtf8 x) [TE.de
 request :: Handler Request
 request = asks waiReq
 
-body :: Handler ByteString
-body = request >>= return . requestBody >>= consume id
-  where
-    consume prefix producer = do
-        chunk <- liftIO producer
-        if B.null chunk
-            then return $ B.concat $ prefix []
-            else consume (prefix . (chunk:)) producer
-
+body :: Handler BL.ByteString
+body = request >>= liftIO . strictRequestBody
 
 postParams :: Handler Params
 postParams = asks pps

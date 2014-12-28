@@ -195,7 +195,7 @@ testBroch issuer pool = do
 
     registrationHandler registerClient = do
         b <- body
-        case eitherDecodeStrict' b of
+        case eitherDecode b of
             Left err -> status badRequest400 >> text (T.pack err)
             Right v@(Object o) -> case fromJSON v of
                 Error e    -> status badRequest400 >> text (T.pack e)
