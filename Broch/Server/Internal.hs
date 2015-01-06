@@ -182,7 +182,7 @@ rawBytes :: BL.ByteString -> Handler ()
 rawBytes b = (modify $ \rs -> rs { resBody = b }) >> throwError ResponseComplete
 
 text :: Text -> Handler ()
-text t = setContentType "text/plain" >> (rawBytes . BL.fromStrict $ TE.encodeUtf8 t)
+text t = setContentType "text/plain; charset=utf-8" >> (rawBytes . BL.fromStrict $ TE.encodeUtf8 t)
 
 complete :: Handler ()
 complete = throwError ResponseComplete
@@ -191,7 +191,7 @@ json :: A.ToJSON a => a -> Handler ()
 json j = setContentType "application/json" >> (rawBytes $ A.encode j)
 
 html :: Html -> Handler ()
-html h = setContentType "text/html" >> (rawBytes $ renderHtml h)
+html h = setContentType "text/html; charset=utf-8" >> (rawBytes $ renderHtml h)
 
 sessionLookup :: ByteString -> Handler (Maybe ByteString)
 sessionLookup k = gets $ \rs -> maybe Nothing (\s -> S.lookup s k) $ resSession rs
