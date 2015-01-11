@@ -82,7 +82,7 @@ data ResponseState = ResponseState
     , resSession :: !(Maybe S.Session)
     }
 
-routerToApp :: S.LoadSession -> ByteString -> Router -> Application
+routerToApp :: S.LoadSession -> Text -> Router -> Application
 routerToApp loadSesh baseUrl route req respond = do
     pParams <- fst <$> parseRequestBody lbsBackEnd req
 
@@ -114,7 +114,7 @@ routerToApp loadSesh baseUrl route req respond = do
                       Just sh -> sh : (resHeaders res)
         return $ case result of
             Left ResponseComplete -> responseLBS (resStatus res) hdrs (resBody res)
-            Left (Redirect url)   -> redirectFull (B.concat [baseUrl, url]) hdrs
+            Left (Redirect url)   -> redirectFull (B.concat [TE.encodeUtf8 baseUrl, url]) hdrs
             Left (RedirectExternal url) -> redirectFull url hdrs
             Left (HandlerError msg) -> responseLBS internalServerError500 hdrs (BL.fromStrict msg)
             Right _ -> error "Not handled"

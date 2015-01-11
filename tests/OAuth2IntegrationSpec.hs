@@ -99,7 +99,7 @@ testapp = do
     let issuer = "http://testapp"
     csKey <- getDefaultKey
     router <- testBroch issuer pool
-    let app = routerToApp (Session.defaultLoadSession 60 csKey) (TE.encodeUtf8 issuer) router
+    let app = routerToApp (Session.defaultLoadSession 60 csKey) issuer router
     return $ logStdoutDev app
 
 approveIfRequired :: WaiTest ()
