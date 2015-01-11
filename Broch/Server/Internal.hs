@@ -92,15 +92,15 @@ routerToApp loadSesh baseUrl route req respond = do
             let rd = RequestData
                       { waiReq  = req
                       , method  = m
-                      , qps     = toMap $ fmap (\(n, v) -> (n, fromMaybe "" $ v)) $ queryString req
+                      , qps     = toMap $ (\(n, v) -> (n, fromMaybe "" v)) <$> queryString req
                       , pps     = toMap pParams
                       }
 
-            (runHandler rd $ route $ pathInfo req)
+            runHandler rd (route $ pathInfo req)
                 `catch` \(e :: SomeException) -> return $ responseLBS internalServerError500 [] $ BLC.pack $ "Internal error: " ++ show e
     respond response
   where
-    redirectFull url hdrs = responseLBS status302 ((hLocation, url) : hdrs) ""
+    redirectFull url hdrs = traceShow url $ responseLBS status302 ((hLocation, url) : hdrs) ""
     httpMeth              = parseMethod $ requestMethod req
 
     runHandler :: RequestData -> Handler () -> IO Response
@@ -111,7 +111,7 @@ routerToApp loadSesh baseUrl route req respond = do
         seshHdr <- saveSesh $ resSession res
         let hdrs = case seshHdr of
                       Nothing -> resHeaders res
-                      Just sh -> sh : (resHeaders res)
+                      Just sh -> sh : resHeaders res
         return $ case result of
             Left ResponseComplete -> responseLBS (resStatus res) hdrs (resBody res)
             Left (Redirect url)   -> redirectFull (B.concat [TE.encodeUtf8 baseUrl, url]) hdrs
@@ -145,10 +145,9 @@ queryParam :: Text -> Handler Text
 queryParam name = queryParams >>= lookupParam name
 
 lookupParam :: Text -> Params -> Handler Text
-lookupParam name params = do
-    case M.lookup name params of
-        Just [v] -> return v
-        _        -> throwError $ HandlerError $ B.concat ["Missing or duplicate parameter", TE.encodeUtf8 name]
+lookupParam name params = case M.lookup name params of
+    Just [v] -> return v
+    _        -> throwError $ HandlerError $ B.concat ["Missing or duplicate parameter", TE.encodeUtf8 name]
 
 httpMethod :: Handler StdMethod
 httpMethod = asks method
@@ -156,9 +155,7 @@ httpMethod = asks method
 requireMethod :: StdMethod -> Handler ()
 requireMethod m = do
     actualMethod <- httpMethod
-    if m == actualMethod
-        then return ()
-        else status methodNotAllowed405 >> text "Method not supported"
+    unless (m == actualMethod) $ status methodNotAllowed405 >> text "Method not supported"
 
 -- Responses
 
@@ -173,13 +170,13 @@ status :: Status -> Handler ()
 status s = modify $ \rs -> rs { resStatus = s }
 
 setHeader :: HeaderName -> ByteString -> Handler ()
-setHeader name value = modify $ \rs -> rs { resHeaders = (name, value) : (resHeaders rs) }
+setHeader name value = modify $ \rs -> rs { resHeaders = (name, value) : resHeaders rs }
 
 setContentType :: ByteString -> Handler ()
-setContentType t = setHeader "Content-Type" t
+setContentType = setHeader "Content-Type"
 
 rawBytes :: BL.ByteString -> Handler ()
-rawBytes b = (modify $ \rs -> rs { resBody = b }) >> throwError ResponseComplete
+rawBytes b = modify (\rs -> rs { resBody = b }) >> throwError ResponseComplete
 
 text :: Text -> Handler ()
 text t = setContentType "text/plain; charset=utf-8" >> (rawBytes . BL.fromStrict $ TE.encodeUtf8 t)
@@ -188,16 +185,16 @@ complete :: Handler ()
 complete = throwError ResponseComplete
 
 json :: A.ToJSON a => a -> Handler ()
-json j = setContentType "application/json" >> (rawBytes $ A.encode j)
+json j = setContentType "application/json" >> rawBytes (A.encode j)
 
 html :: Html -> Handler ()
-html h = setContentType "text/html; charset=utf-8" >> (rawBytes $ renderHtml h)
+html h = setContentType "text/html; charset=utf-8" >> rawBytes (renderHtml h)
 
 sessionLookup :: ByteString -> Handler (Maybe ByteString)
-sessionLookup k = gets $ \rs -> maybe Nothing (\s -> S.lookup s k) $ resSession rs
+sessionLookup k = gets $ \rs -> maybe Nothing (`S.lookup` k) $ resSession rs
 
 sessionInsert :: ByteString -> ByteString -> Handler ()
-sessionInsert k v = modify $ \rs -> let session = maybe S.empty id $ resSession rs
+sessionInsert k v = modify $ \rs -> let session = fromMaybe S.empty $ resSession rs
                                     in  rs { resSession = Just $ S.insert session k v }
 
 sessionDelete :: ByteString -> Handler ()
