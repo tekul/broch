@@ -12,8 +12,19 @@ import           Jose.Jwk
 
 import           Broch.Model
 
+data RegistrationError = InvalidRedirectUri
+                       | InvalidMetaData Text
+
+instance ToJSON RegistrationError where
+    toJSON InvalidRedirectUri  = object ["error" .= ("invalid_redirect_uri" :: Text)]
+    toJSON (InvalidMetaData m) = object
+        [ "error" .= ("invalid_client_metadata" :: Text)
+        , "error_description" .= m
+        ]
+
+
 type RegisterClient m = ClientMetaData
-                     -> m Client
+                     -> m (Either RegistrationError Client)
 
 data AppType = Web | Native deriving (Eq, Show)
 

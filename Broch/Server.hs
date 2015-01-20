@@ -1,7 +1,9 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, ScopedTypeVariables #-}
 module Broch.Server where
 
 import           Control.Applicative
+import           Control.Error hiding (err)
+import           Control.Exception (SomeException, catch)
 import           Control.Monad (liftM, forM_, unless)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Crypto.BCrypt as BCrypt
@@ -18,6 +20,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromJust)
 import           Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import           Data.Text.Read (decimal)
 import qualified Data.Text.Encoding as TE
 import           Data.Time.Clock
@@ -100,20 +103,32 @@ testBroch issuer pool = do
     let getApproval usr clnt now = runDB $ BP.getApproval (subjectId usr) (clientId clnt) now
     let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
     let config = defaultOpenIDConfiguration issuer
-    let registerClient :: ClientMetaData -> IO Client
+    let registerClient :: ClientMetaData -> IO (Either RegistrationError Client)
         registerClient c = do
             cid <- generateCode
             sec <- generateCode
             let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
+
+                retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
+                retrieveJwks uri = do
+                    -- TODO: Better HTTP client code. No redirect following
+                    js <- EitherT . liftIO $ (Right <$> simpleHttp (T.unpack uri))
+                        `catch` \(e :: SomeException) -> do
+                            let errMsg = T.pack ("Failed to retrieve JWKs from URI: " ++ show e)
+                            TIO.putStrLn errMsg
+                            return $ Left (InvalidMetaData errMsg)
+                    let jwkError s = T.pack ("Failed to decode retrieved client JWKs: " ++ s)
+                    either (left . InvalidMetaData . jwkError) (right . Just . keys) (eitherDecode' js)
+
             -- retrieve client keys if URI set
-            ks <- case clientKeysUri client of
-                Just uri -> do
-                    js <- simpleHttp (T.unpack uri)
-                    debug js
-                    return $ keys <$> decode' js
-                Nothing  -> return $ clientKeys client
-            runDB $ BP.createClient client { clientKeys = ks }
-            return client
+            runEitherT $ do
+                ks <- case clientKeysUri client of
+                    Just uri -> retrieveJwks uri
+                    Nothing  -> return $ clientKeys client
+                liftIO . runDB $ BP.createClient client { clientKeys = ks }
+                return client
+
+
 
         createIdToken uid aTime client nons now code aToken = do
             token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 kPr issuer (clientId client) nons uid aTime now code aToken
@@ -193,18 +208,22 @@ testBroch issuer pool = do
 
     userIdKey = "_uid"
 
+    registrationHandler :: RegisterClient IO -> Handler ()
     registrationHandler registerClient = do
         b <- body
-        case eitherDecode b of
+        case eitherDecode' b of
             Left err -> status badRequest400 >> text (T.pack err)
             Right v@(Object o) -> case fromJSON v of
                 Error e    -> status badRequest400 >> text (T.pack e)
                 Success md -> do
-                    c <- liftIO $ registerClient md
-                    -- Cheat here. Add the extra fields to the
-                    -- original JSON object
-                    status created201
-                    json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
+                    reg <- liftIO $ registerClient md
+                    case reg of
+                        -- Cheat here. Add the extra fields to the
+                        -- original JSON object
+                        Right c -> do
+                            status created201
+                            json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
+                        Left  e -> status badRequest400 >> json e
             Right _            -> status badRequest400 >> text "Registration data must be a JSON Object"
 
     loginHandler authenticate = httpMethod >>= \m -> case m of
