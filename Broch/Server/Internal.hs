@@ -97,7 +97,10 @@ routerToApp loadSesh baseUrl route req respond = do
                       }
 
             runHandler rd (route $ pathInfo req)
-                `catch` \(e :: SomeException) -> return $ responseLBS internalServerError500 [] $ BLC.pack $ "Internal error: " ++ show e
+                `catch` \(e :: SomeException) -> do
+                    let errMsg = BLC.pack $ "Internal error: " ++ show e
+                    BLC.putStrLn errMsg
+                    return $ responseLBS internalServerError500 [] errMsg
     respond response
   where
     redirectFull url hdrs = traceShow url $ responseLBS status302 ((hLocation, url) : hdrs) ""
