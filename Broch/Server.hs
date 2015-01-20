@@ -211,10 +211,11 @@ testBroch issuer pool = do
     registrationHandler :: RegisterClient IO -> Handler ()
     registrationHandler registerClient = do
         b <- body
+        let invalidMetaData msg = status badRequest400 >> json (InvalidMetaData msg)
         case eitherDecode' b of
-            Left err -> status badRequest400 >> text (T.pack err)
+            Left err -> invalidMetaData $ T.pack ("Client registration data was not valid JSON: " ++ err)
             Right v@(Object o) -> case fromJSON v of
-                Error e    -> status badRequest400 >> text (T.pack e)
+                Error e    -> invalidMetaData $ T.pack ("Client registration data does not match expected format: " ++ e)
                 Success md -> do
                     reg <- liftIO $ registerClient md
                     case reg of
@@ -224,7 +225,7 @@ testBroch issuer pool = do
                             status created201
                             json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuer, "/client/", clientId c])]
                         Left  e -> status badRequest400 >> json e
-            Right _            -> status badRequest400 >> text "Registration data must be a JSON Object"
+            Right _            -> invalidMetaData "Client registration data must be a JSON Object"
 
     loginHandler authenticate = httpMethod >>= \m -> case m of
         GET  -> html loginPage
