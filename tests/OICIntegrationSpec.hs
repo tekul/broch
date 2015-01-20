@@ -71,12 +71,12 @@ openIdConfigSpec run =
 
 userInfoRequest t = bearerAuth t >> get "/connect/userinfo"
 
+redirectUri = "http://localhost:8080/app"
 -- TODO: Move OpenID tests to separate module and rename this module to
 -- OAuth2IntegrationSpec.
 openIdFlowsSpec run =
     describe "OpenID authentication flows" $ do
-        let redirectUri = "http://localhost:8080/app"
-            auth = authzRequest "app" redirectUri [OpenID]
+        let auth = authzRequest "app" redirectUri [OpenID]
             token = tokenRequest "app" "appsecret" redirectUri
             nonce = ("nonce", "imthenonce")
         describe "A request with response_type=code" $ do
@@ -95,29 +95,32 @@ openIdFlowsSpec run =
                 pending
 
         describe "A request with response_type=code token" $ do
-            it "Requires a nonce" $ do
-                pending
+            it "Requires a nonce" $ run $ authzWithoutNonce CodeToken
             it "Supports code token response type" $ run $ do
                 AuthzResponse Nothing (Just _) (Just _) <- auth CodeToken [nonce]
                 return ()
 
         describe "A request with response_type=code id_token" $ do
-            it "Requires a nonce" $ do
-                pending
+            it "Requires a nonce" $ run $ authzWithoutNonce CodeIdToken
             it "Includes c_hash in id_token"
                 pending
 
         describe "A request with response_type=token id_token" $ do
-            it "Requires a nonce" $ do
-                pending
+            it "Requires a nonce" $ run $ authzWithoutNonce TokenIdToken
             it "Includes at_hash in id_token"
                 pending
 
         describe "A request with response_type=code token id_token" $ do
-            it "Requires a nonce" $ do
-                pending
+            it "Requires a nonce" $ run $ authzWithoutNonce CodeTokenIdToken
             it "Includes c_hash in id_token"
                 pending
             it "Includes at_hash in id_token"
                 pending
+
+authzWithoutNonce typ = do
+    sendAuthzRequest "app" redirectUri [OpenID] typ []
+    loginIfRequired "cat" "cat"
+    expectInvalidRequest
+
+expectInvalidRequest = statusIs 302 >> getLocationParam "error" >>= assertEqual "invalid_request expected" "invalid_request"
 
