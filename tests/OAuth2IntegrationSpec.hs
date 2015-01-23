@@ -32,7 +32,7 @@ spec :: Spec
 spec = do
     app <- runIO testapp
     let run t = runTest app t
-    authCodeSuccessSpec run >> badClientSpec run
+    authCodeSuccessSpec run >> authzErrorSpec run >> badClientSpec run
 
 authCodeSuccessSpec run =
     describe "A successful authorization_code flow" $ do
@@ -47,6 +47,21 @@ authCodeSuccessSpec run =
             reset
             AccessTokenResponse _ _ _ Nothing (Just _) _ <- tokenRequest "app" "appsecret" redirectUri AuthorizationCode code
             return ()
+
+authzErrorSpec run =
+    describe "An authorization error flow" $ do
+
+        it "Returns unauthorized_client if the response_type is not allowed for client" $ run $ do
+            sendAuthzRequest "admin" "http://admin" [] Token []
+            -- Redirect to the login page
+            followRedirect
+            statusIs 200
+            login "cat" "cat"
+            -- Redirected to the original request
+            followRedirect
+            statusIs 302 >> getLocationParam "error" >>= assertEqual "expected error=unauthorized_client" "unauthorized_client"
+
+
 
 badClientSpec run =
     describe "A possibly malicious client request" $ do

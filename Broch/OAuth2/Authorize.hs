@@ -230,7 +230,7 @@ errorURL separator state authzError = T.cons separator $ TE.decodeUtf8 qs
     params = ("error", e) : maybe [] (\d -> [("error_description", d)]) desc
     (e, desc) = case authzError of
         InvalidRequest d      -> ("invalid_request", Just $ TE.encodeUtf8 d)
-        UnauthorizedClient    -> ("unauthorized client", Nothing)
+        UnauthorizedClient    -> ("unauthorized_client", Nothing)
         AccessDenied          -> ("access_denied", Nothing)
         UnsupportedResponseType -> ("unsupported_response_type", Nothing)
         InvalidScope d        -> ("invalid_scope", Just $ TE.encodeUtf8 d)

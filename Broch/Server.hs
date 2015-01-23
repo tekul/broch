@@ -53,8 +53,8 @@ import           Broch.Token
 
 testClients :: [Client]
 testClients =
-    [ Client "admin" (Just "adminsecret") [ClientCredentials]                []                            300 300 [] True ClientSecretBasic Nothing Nothing Nothing
-    , Client "cf"    Nothing              [ResourceOwner]                    ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing Nothing Nothing
+    [ Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] ["http://admin"]              300 300 [] True ClientSecretBasic Nothing Nothing Nothing
+    , Client "cf"    Nothing              [ResourceOwner]                        ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing Nothing Nothing
     , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False ClientSecretBasic Nothing Nothing Nothing
     ]
 
