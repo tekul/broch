@@ -41,7 +41,7 @@ authenticateResourceOwner username password
     | otherwise            = return Nothing
 
 appClient   = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] ["http://app2", "http://app"] 99 99 appClientScope False ClientSecretBasic Nothing Nothing Nothing
-adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] [] 99 99 adminClientScope False ClientSecretBasic Nothing Nothing Nothing
+adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] ["http://admin"] 99 99 adminClientScope False ClientSecretBasic Nothing Nothing Nothing
 roClient    = Client "ro" (Just "rosecret") [ResourceOwner] [] 99 99 appClientScope False ClientSecretBasic Nothing Nothing Nothing
 jsClient    = Client "js" Nothing [Implicit] [] 99 99 jsClientScope False ClientAuthNone Nothing Nothing Nothing
 allClient   = Client "all" (Just "allsecret") [AuthorizationCode, ClientCredentials, Implicit, ResourceOwner] [] 99 99 appClientScope False ClientSecretBasic Nothing Nothing Nothing

@@ -41,24 +41,27 @@ clientError     = Left . ClientRedirectError
 evilClientErrorSpec =
     describe "A potentially malicious client request" $ do
       it "returns an error if client_id is unknown" $
-        doAuthz (Map.insert "client_id" ["badclient"] env) @?= invalidClient "Client does not exist"
+        doAuthz (Map.insert "client_id" ["badclient"] appEnv) @?= invalidClient "Client does not exist"
       it "returns an error if client_id is missing" $
-        doAuthz (Map.delete "client_id" env) @?= invalidClient "Missing client_id"
+        doAuthz (Map.delete "client_id" appEnv) @?= invalidClient "Missing client_id"
       it "returns an error if redirect_uri doesn't match client's" $
-        doAuthz (Map.insert "redirect_uri" ["https://badclient"] env) @?= invalidRedirect
+        doAuthz (Map.insert "redirect_uri" ["https://badclient"] appEnv) @?= invalidRedirect
       it "returns an error if redirect_uri is duplicated" $
-        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] env) @?= invalidRedirect
+        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] appEnv) @?= invalidRedirect
       it "returns an error if redirect_uri contains a fragment" $
-        doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] env) @?= (Left $ MaliciousClient FragmentInUri)
-  where
-    env = createEnv
+        doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] appEnv) @?= Left (MaliciousClient FragmentInUri)
+      it "returns an error if redirect_uri is missing for a client with multiple redirect_uris" $
+        doAuthz (Map.delete "redirect_uri" appEnv) @?= Left (MaliciousClient MissingRedirectUri)
+      it "missing redirect_uri is ok if client only has one registered" $
+        doAuthz adminEnv @?= Right "http://admin?state=somestate&code=acode&scope=scope1%20scope2%20scope3%20admin"
 
 authzRequestErrorSpec =
     describe "A malformed authorization request" $ do
       it "returns invalid_request for a duplicate state parameter" $
-        doAuthz (Map.insert "state" ["astate", "anotherstate"] createEnv) @?= clientError "http://app?error=invalid_request&error_description=Duplicate%20state"
+        doAuthz (Map.insert "state" ["astate", "anotherstate"] appEnv) @?= clientError "http://app?error=invalid_request&error_description=Duplicate%20state"
       it "returns invalid_request for a missing response_type" $
-        doAuthz (Map.delete "response_type" createEnv) @?= clientError "http://app?state=somestate&error=invalid_request&error_description=Missing%20response_type"
+        doAuthz (Map.delete "response_type" appEnv) @?= clientError "http://app?state=somestate&error=invalid_request&error_description=Missing%20response_type"
 
 
-createEnv = Map.fromList [("client_id", ["app"]), ("state", ["somestate"]), ("redirect_uri", ["http://app"]), ("response_type", ["code"])]
+appEnv = Map.fromList [("client_id", ["app"]), ("state", ["somestate"]), ("redirect_uri", ["http://app"]), ("response_type", ["code"])]
+adminEnv = Map.insert "client_id" ["admin"] $ Map.insert "redirect_uri" ["http://admin"] $ appEnv

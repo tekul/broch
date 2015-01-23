@@ -35,6 +35,7 @@ data AuthorizationRequestError = MaliciousClient EvilClientError
 
 data EvilClientError = InvalidClient Text
                      | InvalidRedirectUri
+                     | MissingRedirectUri
                      | FragmentInUri
                      deriving (Show, Eq)
 
@@ -207,8 +208,11 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         validateRedirectURI client uri
         right (client, uri)
       where
-        -- | Check the redirectURI is registered for the client
-        validateRedirectURI _ Nothing = return ()
+        -- Check the redirect_uri is registered for the client.
+        -- If more than one is registered, the parameter must be supplied (see OAuth2 3.1.2.3).
+        validateRedirectURI client Nothing = case redirectURIs client of
+            [_] -> return ()
+            _   -> left $ MaliciousClient MissingRedirectUri
         validateRedirectURI client (Just uri)
           | T.any (== '#') uri        = left $ MaliciousClient FragmentInUri
           | otherwise                 = if uri `elem` redirectURIs client
