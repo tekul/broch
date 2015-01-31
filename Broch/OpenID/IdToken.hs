@@ -5,9 +5,8 @@ module Broch.OpenID.IdToken where
 import Prelude hiding (exp)
 
 import Crypto.PubKey.HashDescr
-import Crypto.PubKey.RSA (PrivateKey)
 import Crypto.Random (CPRG)
-import Data.Aeson
+import qualified Data.Aeson as A
 import Data.Aeson.Types
 import Data.ByteString
 import qualified Data.ByteString as B
@@ -18,8 +17,8 @@ import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX
 import GHC.Generics
 import Jose.Jwa
-import Jose.Jws
-import Jose.Jwt (IntDate (..), JwtError)
+import Jose.Jwk
+import Jose.Jwt (encode, IntDate (..), JwtError)
 import qualified Jose.Internal.Base64 as B64
 
 import Broch.Model
@@ -59,7 +58,7 @@ instance FromJSON IdToken where
 createIdTokenJws :: CPRG g
                  => g
                  -> JwsAlg                        -- JWS encoding
-                 -> PrivateKey
+                 -> Jwk
                  -> Text                          -- Issuer
                  -> ClientId                      -- Audience
                  -> Maybe Text                    -- Authorization request nonce
@@ -70,7 +69,7 @@ createIdTokenJws :: CPRG g
                  -> Maybe ByteString
                  -> (Either JwtError ByteString, g)
 createIdTokenJws rng a key issuer clid n subject authenticatedAt now code accessToken =
-    rsaEncode rng a key $ BL.toStrict . encode $ IdToken
+    encode rng key (Signed a) Nothing $ BL.toStrict . A.encode $ IdToken
         { iss = issuer
         , sub = subject
         , aud = [clid]
@@ -96,6 +95,7 @@ createIdTokenJws rng a key issuer clid n subject authenticatedAt now code access
         HS384 -> hashDescrSHA384
         HS512 -> hashDescrSHA512
         None  -> error "id_token must be signed"
+        _     -> error "EC algorithms are not suported for signing"
 
 
 

@@ -101,7 +101,8 @@ testBroch issuer pool = do
     let createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
     let decodeRefreshToken _ jwt = decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
     let getApproval usr clnt now = runDB $ BP.getApproval (subjectId usr) (clientId clnt) now
-    let keySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
+    let publicKeySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
+        privateKey   = RsaPrivateJwk kPr (Just "brochkey") Nothing Nothing
     let config = defaultOpenIDConfiguration issuer
     let registerClient :: ClientMetaData -> IO (Either RegistrationError Client)
         registerClient c = do
@@ -131,7 +132,7 @@ testBroch issuer pool = do
 
 
         createIdToken uid aTime client nons now code aToken = do
-            token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 kPr issuer (clientId client) nons uid aTime now code aToken
+            token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 privateKey issuer (clientId client) nons uid aTime now code aToken
             either (const $ error "Failed to create IdToken") return token
 
         hashPassword p = do
@@ -171,7 +172,7 @@ testBroch issuer pool = do
               _            -> notFound
           (".well-known":ps) -> case ps of
               ["openid-configuration"] -> json config
-              ["jwks"]                 -> json keySet
+              ["jwks"]                 -> json publicKeySet
               _                        -> notFound
           _            -> notFound
 

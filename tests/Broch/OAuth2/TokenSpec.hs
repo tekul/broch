@@ -5,7 +5,7 @@ module Broch.OAuth2.TokenSpec where
 
 import Control.Applicative ((<$>))
 import Control.Monad.Identity
-import Data.Aeson (encode)
+import qualified Data.Aeson as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
@@ -149,8 +149,8 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
         doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Left CA.InvalidClient
   where
     appKey       = TE.encodeUtf8 $ fromJust $ clientSecret appClient
-    Right appJwt = Jws.hmacEncode HS256 appKey $ BL.toStrict $ encode appClaims
-    Right badSig = Jws.hmacEncode HS256 "wrongkey" $ BL.toStrict $ encode appClaims
+    Right appJwt = Jws.hmacEncode HS256 appKey $ BL.toStrict $ A.encode appClaims
+    Right badSig = Jws.hmacEncode HS256 "wrongkey" $ BL.toStrict $ A.encode appClaims
     appClaims    = clientClaims appClient ["anissuer"]
 
     assertionTypeParam = ("client_assertion_type", ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"])
