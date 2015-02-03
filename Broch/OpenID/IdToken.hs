@@ -69,7 +69,7 @@ createIdTokenJws :: CPRG g
                  -> Maybe ByteString
                  -> (Either JwtError ByteString, g)
 createIdTokenJws rng a key issuer clid n subject authenticatedAt now code accessToken =
-    encode rng key (Signed a) Nothing $ BL.toStrict . A.encode $ IdToken
+    encode rng [key] (Signed a) Nothing $ BL.toStrict . A.encode $ IdToken
         { iss = issuer
         , sub = subject
         , aud = [clid]

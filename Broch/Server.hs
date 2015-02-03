@@ -4,13 +4,13 @@ module Broch.Server where
 import           Control.Applicative
 import           Control.Error hiding (err)
 import           Control.Exception (SomeException, catch)
-import           Control.Monad (liftM, forM_, unless)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Control.Monad.State.Strict
 import qualified Crypto.BCrypt as BCrypt
 import qualified Crypto.PubKey.RSA as RSA
-import           Data.Aeson hiding (json)
+import           Data.Aeson as A hiding (json)
 import qualified Data.ByteString.Base64 as B64
 import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B
 import           Data.Default.Generics as DD
 import qualified Data.HashMap.Strict as HM
@@ -30,7 +30,7 @@ import           Data.UUID.V4
 import           Database.Persist.Sql (ConnectionPool, runMigrationSilent, runSqlPersistMPool)
 import           Jose.Jwk
 import           Jose.Jwa
-import           Jose.Jwt (IntDate(..))
+import           Jose.Jwt (encode, IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import           Network.HTTP.Conduit (simpleHttp)
@@ -53,9 +53,9 @@ import           Broch.Token
 
 testClients :: [Client]
 testClients =
-    [ Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] ["http://admin"]              300 300 [] True ClientSecretBasic Nothing Nothing Nothing
-    , Client "cf"    Nothing              [ResourceOwner]                        ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing Nothing Nothing
-    , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False ClientSecretBasic Nothing Nothing Nothing
+    [ Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] ["http://admin"]              300 300 [] True ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing
+    , Client "cf"    Nothing              [ResourceOwner]                        ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing Nothing Nothing Nothing Nothing Nothing
+    , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing
     ]
 
 testUsers :: [ScimUser]
@@ -108,9 +108,7 @@ testBroch issuer pool = do
         registerClient c = do
             cid <- generateCode
             sec <- generateCode
-            let client = makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
-
-                retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
+            let retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
                 retrieveJwks uri = do
                     -- TODO: Better HTTP client code. No redirect following
                     js <- EitherT . liftIO $ (Right <$> simpleHttp (T.unpack uri))
@@ -123,13 +121,12 @@ testBroch issuer pool = do
 
             -- retrieve client keys if URI set
             runEitherT $ do
-                ks <- case clientKeysUri client of
+                client <- hoistEither $ makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
+                ks     <- case clientKeysUri client of
                     Just uri -> retrieveJwks uri
                     Nothing  -> return $ clientKeys client
                 liftIO . runDB $ BP.createClient client { clientKeys = ks }
                 return client
-
-
 
         createIdToken uid aTime client nons now code aToken = do
             token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 privateKey issuer (clientId client) nons uid aTime now code aToken
@@ -150,8 +147,18 @@ testBroch issuer pool = do
 
         userInfoHandler = withBearerToken (decodeJwtAccessToken kPr) [OpenID] $ \g -> do
             scimUser <- getUser $ fromJust $ granterId g
+            -- TODO: Handle missing client situation
+            Just client   <- getClient (granteeId g)
             -- Convert from SCIM... yuk
-            json $ scopedClaims (grantScope g) $ scimUserToUserInfo $ fromJust scimUser
+            let claims = scopedClaims (grantScope g) $ scimUserToUserInfo $ fromJust scimUser
+            case userInfoAlgs client of
+                Nothing -> json claims
+                Just (AlgPrefs Nothing NotEncrypted) -> json claims
+                Just a  -> do
+                    jwtRes <- liftIO $ jwtResponse [privateKey] (fromMaybe [] (clientKeys client)) a claims
+                    case jwtRes of
+                        Right jwt -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
+                        Left  e   -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
 
     mapM_ createUser testUsers
 
@@ -205,6 +212,17 @@ testBroch issuer pool = do
         delete "/Groups/:uid" undefined
 --}
   where
+    jwtResponse opJwks rpJwks (AlgPrefs s e) claims = withCPRG $ \rng -> flip runState rng $ runEitherT $ do
+        let sign payload = case s of
+                Nothing -> return payload
+                Just a  -> hoistEither =<< state (\g -> Jose.Jwt.encode g opJwks (Signed a) Nothing payload)
+
+            encrypt payload = case e of
+                NotEncrypted -> return payload
+                E alg enc    -> hoistEither =<< state (\g -> Jose.Jwt.encode g rpJwks (Encrypted alg) (Just enc) payload)
+
+        encrypt =<< sign (BL.toStrict (A.encode claims))
+
     randomPassword = (TE.decodeUtf8 . B64.encode) <$> randomBytes 12
 
     userIdKey = "_uid"

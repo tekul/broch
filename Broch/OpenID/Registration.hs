@@ -72,21 +72,34 @@ data ClientMetaData = ClientMetaData
     } deriving (Show, Generic)
 
 
-makeClient :: ClientId -> Text -> ClientMetaData -> Client
-makeClient cid csec md = Client
-    { clientId = cid
-    , clientSecret = Just csec
-    , authorizedGrantTypes = fromMaybe [AuthorizationCode] (grant_types md)
-    , redirectURIs = redirect_uris md
-    , accessTokenValidity  = 24 * 60 * 60
-    , refreshTokenValidity = 30 * 24 * 60 * 60
-    , allowedScope = [OpenID, Profile, Email, Address, Phone]
-    , autoapprove = False
-    , tokenEndpointAuthMethod = fromMaybe ClientSecretBasic $ token_endpoint_auth_method md
-    , tokenEndpointAuthAlg    = token_endpoint_auth_signing_alg md
-    , clientKeysUri           = jwks_uri md
-    , clientKeys              = keys <$> jwks md
-    }
+makeClient :: ClientId -> Text -> ClientMetaData -> Either RegistrationError Client
+makeClient cid csec md = do
+    idAlgs     <- makeAlgorithmPrefs (id_token_signed_response_alg md) (id_token_encrypted_response_alg md) (id_token_encrypted_response_enc md)
+    infoAlgs   <- makeAlgorithmPrefs (userinfo_signed_response_alg md) (userinfo_encrypted_response_alg md) (userinfo_encrypted_response_enc md)
+    reqObjAlgs <- makeAlgorithmPrefs (request_object_signing_alg   md) (request_object_encryption_alg md)   (request_object_encryption_enc md)
+    return Client
+        { clientId = cid
+        , clientSecret = Just csec
+        , authorizedGrantTypes = fromMaybe [AuthorizationCode] (grant_types md)
+        , redirectURIs = redirect_uris md
+        , accessTokenValidity  = 24 * 60 * 60
+        , refreshTokenValidity = 30 * 24 * 60 * 60
+        , allowedScope = [OpenID, Profile, Email, Address, Phone]
+        , autoapprove = False
+        , tokenEndpointAuthMethod = fromMaybe ClientSecretBasic $ token_endpoint_auth_method md
+        , tokenEndpointAuthAlg    = token_endpoint_auth_signing_alg md
+        , clientKeysUri           = jwks_uri md
+        , clientKeys              = keys <$> jwks md
+        , idTokenAlgs             = idAlgs
+        , userInfoAlgs            = infoAlgs
+        , requestObjAlgs          = reqObjAlgs
+        }
+  where
+    makeAlgorithmPrefs Nothing   Nothing  Nothing  = return Nothing
+    makeAlgorithmPrefs (Just s)  Nothing  Nothing  = return . Just $ AlgPrefs (Just s)        NotEncrypted
+    makeAlgorithmPrefs s         (Just a) (Just e) = return . Just $ AlgPrefs s (E a e)
+    makeAlgorithmPrefs s         (Just a) Nothing  = return . Just $ AlgPrefs s (E a A128CBC_HS256)
+    makeAlgorithmPrefs _         Nothing (Just _)  = Left (InvalidMetaData "Encryption 'alg' must be provided if 'enc' is set")
 
 instance FromJSON ClientMetaData
 

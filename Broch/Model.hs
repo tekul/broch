@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, Rank2Types #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, Rank2Types #-}
 
 module Broch.Model where
 
@@ -12,8 +12,9 @@ import Data.Maybe (fromJust)
 import Data.Time
 import Data.Time.Clock.POSIX
 import Data.Tuple (swap)
+import GHC.Generics
 import Jose.Jwt (IntDate)
-import Jose.Jwa (JwsAlg)
+import Jose.Jwa (JwsAlg, JweAlg, Enc)
 import Jose.Jwk
 
 type WithCPRG m g = CPRG g => (g -> (a, g)) -> m a
@@ -210,9 +211,23 @@ data Client = Client
     , autoapprove :: Bool
     , tokenEndpointAuthMethod :: ClientAuthMethod
     , tokenEndpointAuthAlg    :: Maybe JwsAlg
-    , clientKeysUri :: Maybe Text
-    , clientKeys    :: Maybe [Jwk]
+    , clientKeysUri  :: Maybe Text
+    , clientKeys     :: Maybe [Jwk]
+    , idTokenAlgs    :: Maybe AlgPrefs
+    , userInfoAlgs   :: Maybe AlgPrefs
+    , requestObjAlgs :: Maybe AlgPrefs
     } deriving (Show)
+
+data JwePrefs = E JweAlg Enc
+              | NotEncrypted
+              deriving (Show, Generic)
+
+data AlgPrefs = AlgPrefs (Maybe JwsAlg) JwePrefs deriving (Show, Generic)
+
+instance ToJSON JwePrefs
+instance FromJSON JwePrefs
+instance ToJSON AlgPrefs
+instance FromJSON AlgPrefs
 
 data ResponseType = Code
                   | Token

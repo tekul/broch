@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 module Broch.Server.Internal
     ( Handler
     , Router
@@ -18,6 +18,7 @@ module Broch.Server.Internal
     , text
     , json
     , html
+    , rawBytes
     , complete
     , sessionLookup
     , sessionInsert
