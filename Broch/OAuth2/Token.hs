@@ -41,7 +41,7 @@ data AccessTokenResponse = AccessTokenResponse
   { accessToken  :: !ByteString
   , tokenType    :: !TokenType
   , expiresIn    :: !TokenTTL
-  , idToken      :: !(Maybe ByteString)
+  , idToken      :: !(Maybe Jwt)
   , refreshToken :: !(Maybe ByteString)
   , tokenScope   :: !(Maybe ByteString)
   } deriving (Show, Eq)
@@ -54,14 +54,14 @@ instance ToJSON AccessTokenResponse where
                     , "expires_in"   .= expires
                     ] ++ maybe [] (\r -> ["refresh_token" .= TE.decodeUtf8 r]) mr
                       ++ maybe [] (\s -> ["scope"         .= TE.decodeUtf8 s]) ms
-                      ++ maybe [] (\i -> ["id_token"      .= TE.decodeUtf8 i]) mi
+                      ++ maybe [] (\i -> ["id_token"      .= i]) mi
 
 instance FromJSON AccessTokenResponse where
     parseJSON = withObject "AccessTokenResponse" $ \v ->
         AccessTokenResponse <$> fmap TE.encodeUtf8 (v .: "access_token")
                             <*> v .: "token_type"
                             <*> fmap fromIntegral (v .: "expires_in" :: Parser Int)
-                            <*> fmap (fmap TE.encodeUtf8) (v .:? "id_token")
+                            <*> v .:? "id_token"
                             <*> fmap (fmap TE.encodeUtf8) (v .:? "refresh_token")
                             <*> fmap (fmap TE.encodeUtf8) (v .:? "scope")
 

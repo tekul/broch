@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 
 module Broch.Token
-  ( createJwtAccessToken
+  ( createJwtToken
+  , createJwtAccessToken
   , decodeJwtAccessToken
   , decodeJwtRefreshToken
   )
@@ -10,12 +11,13 @@ where
 import Prelude hiding (exp)
 
 import Control.Applicative ((<$>))
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Error
+import Control.Monad.State.Strict
+import Crypto.Random (CPRG)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict, fromStrict)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import GHC.Generics
@@ -25,7 +27,8 @@ import qualified Crypto.PubKey.RSA as RSA
 import Broch.Model
 import Broch.Random
 import Jose.Jwa
-import Jose.Jwt (JweHeader, IntDate(..))
+import Jose.Jwk
+import qualified Jose.Jwt as Jwt
 import qualified Jose.Jwe as Jwe
 
 tokenTTL :: POSIXTime
@@ -33,6 +36,27 @@ tokenTTL = 3600
 
 refreshTokenTTL :: POSIXTime
 refreshTokenTTL = 3600 * 24
+
+createJwtToken :: (CPRG g, ToJSON a)
+               => g
+               -> [Jwk]
+               -> [Jwk]
+               -> AlgPrefs
+               -> a
+               -> (Either Jwt.JwtError Jwt.Jwt, g)
+createJwtToken rng sigKeys encKeys prefs claims = case prefs of
+    AlgPrefs s e -> flip runState rng $ runEitherT $ do
+        let payload = Jwt.Claims cBytes
+        signed <- case s of
+            Nothing -> return payload
+            Just a  -> fmap Jwt.Nested (hoistEither =<< state (\g -> Jwt.encode g sigKeys (Signed a) Nothing payload))
+        case e of
+            NotEncrypted -> case signed of
+                Jwt.Nested jwt -> return jwt
+                Jwt.Claims _   -> left $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
+            E alg enc    -> hoistEither =<< state (\g -> Jwt.encode g encKeys (Encrypted alg) (Just enc) payload)
+  where
+    cBytes = toStrict (encode claims)
 
 createJwtAccessToken :: (MonadIO m)
                      => RSA.PublicKey
@@ -43,32 +67,31 @@ createJwtAccessToken :: (MonadIO m)
                      -> POSIXTime
                      -> m (ByteString, Maybe ByteString, TokenTTL)
 createJwtAccessToken pubKey user client grantType scopes now = do
-      token        <- liftIO $ toJwt claims
-      refreshToken <- liftIO issueRefresh
+      Jwt.Jwt token  <- liftIO $ toJwt claims
+      refreshToken   <- liftIO issueRefresh
       return (token, refreshToken, tokenTTL)
     where
       toJwt t = withCPRG $ \cprg -> Jwe.rsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
       issueRefresh
-        | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just <$> toJwt refreshClaims
+        | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just . Jwt.unJwt <$> toJwt refreshClaims
         | otherwise = return Nothing
       subject = fromMaybe (clientId client) user
       claims = Claims
-                 { iss = "Broch"
-                 , sub = subject
-                 , grt = grantType
-                 , cid = clientId client
-                 , aud = ["nobody"]
-                 , exp = IntDate $ now + tokenTTL
-                 , nbf = Nothing
-                 , iat = IntDate now
-                 , jti = Nothing
-                 , scp = map scopeName scopes
-                 }
+          { iss = "Broch"
+          , sub = subject
+          , grt = grantType
+          , cid = clientId client
+          , aud = ["nobody"]
+          , exp = Jwt.IntDate $ now + tokenTTL
+          , nbf = Nothing
+          , iat = Jwt.IntDate now
+          , jti = Nothing
+          , scp = map scopeName scopes
+          }
       refreshClaims = claims
-                        { exp = IntDate $ now + refreshTokenTTL
-                        , aud = ["refresh"]
-                        }
-
+          { exp = Jwt.IntDate $ now + refreshTokenTTL
+          , aud = ["refresh"]
+          }
 
 decodeJwtRefreshToken :: MonadIO m
                       => RSA.PrivateKey
@@ -92,7 +115,6 @@ decodeJwtToken privKey jwt = do
         Right (Just c)  -> Just $ claimsToAccessGrant c
         _               -> Nothing
   where
-    decodeClaims :: (JweHeader, ByteString) -> Maybe Claims
     decodeClaims (_, t) = decode $ fromStrict t
 
 
@@ -114,17 +136,17 @@ omitNothingOptions :: Options
 omitNothingOptions = defaultOptions { omitNothingFields = True }
 
 data Claims = Claims
-      { iss :: Text
-      , sub :: Text
-      , grt :: GrantType
-      , cid :: Text
-      , aud :: [Text]
-      , exp :: IntDate
-      , nbf :: Maybe IntDate
-      , iat :: IntDate
-      , jti :: Maybe Text
-      , scp :: [Text]
-      } deriving (Generic)
+    { iss :: Text
+    , sub :: Text
+    , grt :: GrantType
+    , cid :: Text
+    , aud :: [Text]
+    , exp :: Jwt.IntDate
+    , nbf :: Maybe Jwt.IntDate
+    , iat :: Jwt.IntDate
+    , jti :: Maybe Text
+    , scp :: [Text]
+    } deriving (Generic)
 
 instance ToJSON Claims where
     toJSON = genericToJSON omitNothingOptions

@@ -5,20 +5,16 @@ module Broch.OpenID.IdToken where
 import Prelude hiding (exp)
 
 import Crypto.PubKey.HashDescr
-import Crypto.Random (CPRG)
-import qualified Data.Aeson as A
 import Data.Aeson.Types
 import Data.ByteString
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Time (NominalDiffTime)
 import Data.Time.Clock.POSIX
 import GHC.Generics
 import Jose.Jwa
-import Jose.Jwk
-import Jose.Jwt (encode, IntDate (..), JwtError)
+import Jose.Jwt
 import qualified Jose.Internal.Base64 as B64
 
 import Broch.Model
@@ -53,26 +49,19 @@ instance FromJSON IdToken where
     parseJSON = genericParseJSON omitNothingOptions
 
 
--- TODO: Add support for nested JWE token
-
-createIdTokenJws :: CPRG g
-                 => g
-                 -> JwsAlg                        -- JWS encoding
-                 -> Jwk
-                 -> Text                          -- Issuer
-                 -> ClientId                      -- Audience
-                 -> Maybe Text                    -- Authorization request nonce
-                 -> SubjectId                     -- Subject
-                 -> POSIXTime                     -- Authentication time
-                 -> POSIXTime                     -- Current time
-                 -> Maybe ByteString
-                 -> Maybe ByteString
-                 -> (Either JwtError ByteString, g)
-createIdTokenJws rng a key issuer clid n subject authenticatedAt now code accessToken =
-    encode rng [key] (Signed a) Nothing $ BL.toStrict . A.encode $ IdToken
+idTokenClaims :: Text                      -- ^ Issuer
+              -> Client                    -- ^ Audience
+              -> Maybe Text                -- ^ Authorization request nonce
+              -> SubjectId                 -- ^ Subject
+              -> POSIXTime                 -- ^ Authentication time
+              -> POSIXTime                 -- ^ Current time
+              -> Maybe ByteString          -- ^ The authorization code
+              -> Maybe ByteString          -- ^ The access token
+              -> IdToken
+idTokenClaims issuer client n subject authenticatedAt now code accessToken = IdToken
         { iss = issuer
         , sub = subject
-        , aud = [clid]
+        , aud = [clientId client]
         , exp = IntDate $ now + idTokenTTL
         , iat = IntDate now
         , auth_time = IntDate authenticatedAt
@@ -80,14 +69,17 @@ createIdTokenJws rng a key issuer clid n subject authenticatedAt now code access
         , acr = Nothing
         , amr = Nothing
         , azp = Nothing
-        , c_hash = fmap idtHash code
+        , c_hash  = fmap idtHash code
         , at_hash = fmap idtHash accessToken
         }
   where
+    sigAlg = case idTokenAlgs client of
+        Just (AlgPrefs (Just s) _) -> s
+        _                          -> RS256
     idtHash b = let h = hash b
                     l = B.length h `div` 2
                 in TE.decodeUtf8 $ B64.encode $ B.take l h
-    hash = hashFunction $ case a of
+    hash = hashFunction $ case sigAlg of
         RS256 -> hashDescrSHA256
         RS384 -> hashDescrSHA384
         RS512 -> hashDescrSHA512

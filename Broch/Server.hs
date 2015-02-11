@@ -30,7 +30,7 @@ import           Data.UUID.V4
 import           Database.Persist.Sql (ConnectionPool, runMigrationSilent, runSqlPersistMPool)
 import           Jose.Jwk
 import           Jose.Jwa
-import           Jose.Jwt (encode, IntDate(..))
+import           Jose.Jwt (Jwt(..), IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import           Network.HTTP.Conduit (simpleHttp)
@@ -103,6 +103,7 @@ testBroch issuer pool = do
     let getApproval usr clnt now = runDB $ BP.getApproval (subjectId usr) (clientId clnt) now
     let publicKeySet = JwkSet [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
         privateKey   = RsaPrivateJwk kPr (Just "brochkey") Nothing Nothing
+        opSigKeys    = [privateKey]
     let config = defaultOpenIDConfiguration issuer
     let registerClient :: ClientMetaData -> IO (Either RegistrationError Client)
         registerClient c = do
@@ -129,7 +130,12 @@ testBroch issuer pool = do
                 return client
 
         createIdToken uid aTime client nons now code aToken = do
-            token <- liftIO $ withCPRG $ \g -> createIdTokenJws g RS256 privateKey issuer (clientId client) nons uid aTime now code aToken
+            let claims  = idTokenClaims issuer client nons uid aTime now code aToken
+                rpKeys  = fromMaybe [] (clientKeys client)
+                csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
+                sigKeys = maybe opSigKeys (: opSigKeys) csKey
+                prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
+            token <- liftIO $ withCPRG $ \g -> createJwtToken g sigKeys rpKeys prefs claims
             either (const $ error "Failed to create IdToken") return token
 
         hashPassword p = do
@@ -155,10 +161,10 @@ testBroch issuer pool = do
                 Nothing -> json claims
                 Just (AlgPrefs Nothing NotEncrypted) -> json claims
                 Just a  -> do
-                    jwtRes <- liftIO $ jwtResponse [privateKey] (fromMaybe [] (clientKeys client)) a claims
+                    jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng [privateKey] (fromMaybe [] (clientKeys client)) a claims
                     case jwtRes of
-                        Right jwt -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
-                        Left  e   -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
+                        Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
+                        Left  e         -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
 
     mapM_ createUser testUsers
 
@@ -212,17 +218,6 @@ testBroch issuer pool = do
         delete "/Groups/:uid" undefined
 --}
   where
-    jwtResponse opJwks rpJwks (AlgPrefs s e) claims = withCPRG $ \rng -> flip runState rng $ runEitherT $ do
-        let sign payload = case s of
-                Nothing -> return payload
-                Just a  -> hoistEither =<< state (\g -> Jose.Jwt.encode g opJwks (Signed a) Nothing payload)
-
-            encrypt payload = case e of
-                NotEncrypted -> return payload
-                E alg enc    -> hoistEither =<< state (\g -> Jose.Jwt.encode g rpJwks (Encrypted alg) (Just enc) payload)
-
-        encrypt =<< sign (BL.toStrict (A.encode claims))
-
     randomPassword = (TE.decodeUtf8 . B64.encode) <$> randomBytes 12
 
     userIdKey = "_uid"

@@ -65,7 +65,7 @@ authorizationCodeTokenRequestSpec =
       it "is returns an id_token if openid scope is requested" $ do
         let env = Map.insert "code" ["catoic"] authCodeEnv
         let idt = idToken <$> doToken env appClient
-        idt @?= (Right $ Just "an_id_token")
+        idt @?= (Right $ Just $ Jwt "an_id_token")
 
       it "returns invalid_request if code is missing (5.2)" $
         doToken (Map.delete "code" authCodeEnv) appClient @?= (Left $ InvalidRequest "Missing code")
@@ -149,8 +149,8 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
         doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Left CA.InvalidClient
   where
     appKey       = TE.encodeUtf8 $ fromJust $ clientSecret appClient
-    Right appJwt = Jws.hmacEncode HS256 appKey $ BL.toStrict $ A.encode appClaims
-    Right badSig = Jws.hmacEncode HS256 "wrongkey" $ BL.toStrict $ A.encode appClaims
+    Right (Jwt appJwt) = Jws.hmacEncode HS256 appKey $ BL.toStrict $ A.encode appClaims
+    Right (Jwt badSig) = Jws.hmacEncode HS256 "wrongkey" $ BL.toStrict $ A.encode appClaims
     appClaims    = clientClaims appClient ["anissuer"]
 
     assertionTypeParam = ("client_assertion_type", ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"])
@@ -223,7 +223,7 @@ createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
     token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ map scopeName s)
 
 createIdToken :: (Monad m) => CreateIdToken m
-createIdToken _ _ _ _ _ _ _ = return "an_id_token"
+createIdToken _ _ _ _ _ _ _ = return (Jwt "an_id_token")
 
 
 decodeRefreshToken _ "refreshtoken" = return $ Just catsGrant
