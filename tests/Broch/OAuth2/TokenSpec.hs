@@ -147,11 +147,18 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
       it "returns invalid_client if token is not signed with client secret" $ do
         let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 badSig])] `Map.union` authCodeEnv
         doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Left CA.InvalidClient
+    describe "private_key_jwt authentication" $ do
+      let client = appClient {tokenEndpointAuthMethod = PrivateKeyJwt}
+      it "authenticates the client with a valid JWS assertion" $ do
+        let env = addJwtAssertion pkJwt authCodeEnv
+        doAuth env Nothing client @?= Right "app"
   where
+    addJwtAssertion jwt env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 jwt])] `Map.union` env
     appKey       = TE.encodeUtf8 $ fromJust $ clientSecret appClient
-    Right (Jwt appJwt) = Jws.hmacEncode HS256 appKey $ BL.toStrict $ A.encode appClaims
-    Right (Jwt badSig) = Jws.hmacEncode HS256 "wrongkey" $ BL.toStrict $ A.encode appClaims
-    appClaims    = clientClaims appClient ["anissuer"]
+    Right (Jwt appJwt) = Jws.hmacEncode HS256 appKey appClaims
+    Right (Jwt badSig) = Jws.hmacEncode HS256 "wrongkey" appClaims
+    Right (Jwt pkJwt)  = fst $ encode RNG testPrivateJwks (Signed RS256) Nothing (Claims appClaims)
+    appClaims    = BL.toStrict $ A.encode $ clientClaims appClient ["anissuer"]
 
     assertionTypeParam = ("client_assertion_type", ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"])
     messedUp = Left $ CA.InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
