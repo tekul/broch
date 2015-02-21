@@ -110,11 +110,11 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
     describe "client_secret_post authentication" $ do
       it "returns invalid_client when client doesn't exist" $ do
         let env = Map.fromList [("client_id", ["badclient"]), ("client_secret", ["whocares"])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient @?= Left CA.InvalidClient
+        doAuth env Nothing appClient @?= Left (CA.InvalidClient "Secret verification failed")
 
       it "returns invalid_client when no auth data is supplied" $ do
         let env = Map.insert "client_id" ["app"] authCodeEnv
-        doAuth env Nothing appClient @?= Left CA.InvalidClient
+        doAuth env Nothing appClient @?= Left (CA.InvalidClient "No authentication information supplied")
 
       it "returns invalid_request when mixing Basic and client_secret_post authentication" $ do
         let env = Map.insert "client_secret" ["appsecret"] authCodeEnv
@@ -122,31 +122,33 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
 
       it "returns invalid_client when posted client secret is wrong" $ do
         let env = Map.fromList [("client_id", ["app"]), ("client_secret", ["wrong"])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient @?= Left CA.InvalidClient
+        doAuth env Nothing appClient @?= Left (CA.InvalidClient "Secret verification failed")
 
     describe "client_secret_jwt authentication" $ do
+      let client = appClient {tokenEndpointAuthMethod = ClientSecretJwt}
       it "returns invalid_request for invalid client_assertion_type" $ do
         let env = Map.fromList [("client_assertion_type", ["urn:ietf:params:oauth:nonsense"])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient @?= messedUp
+        doAuth env Nothing client @?= messedUp
 
-      it "rejectd audience which is not the OP" $
+      it "rejects audience which is not the OP" $
         pendingWith "aud check not implemented yet"
 
       it "authenticates client with a valid assertion" $ do
-        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 appJwt])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Right "app"
+        let env = addJwtAssertion appJwt authCodeEnv
+        doAuth env Nothing client @?= Right "app"
 
       it "returns invalid_client if client is not registered to use client_secret_jwt" $ do
-        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 appJwt])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient @?= Left CA.InvalidClient
+        let env = addJwtAssertion appJwt authCodeEnv
+        doAuth env Nothing appClient @?= Left (CA.InvalidClient "client is not registered to use assertion authentication")
 
-      it "returns invalid_client if client is registered to use diffferent alg" $ do
-        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 appJwt])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt, tokenEndpointAuthAlg = Just HS512} @?= Left CA.InvalidClient
+      it "returns invalid_client if client is registered to use different alg" $ do
+        let env = addJwtAssertion appJwt authCodeEnv
+        doAuth env Nothing client {tokenEndpointAuthAlg = Just HS512} @?= Left (CA.InvalidClient "assertion 'alg' does not match client registered algorithm")
 
       it "returns invalid_client if token is not signed with client secret" $ do
-        let env = Map.fromList [assertionTypeParam, ("client_assertion", [TE.decodeUtf8 badSig])] `Map.union` authCodeEnv
-        doAuth env Nothing appClient {tokenEndpointAuthMethod = ClientSecretJwt} @?= Left CA.InvalidClient
+        let env = addJwtAssertion badSig authCodeEnv
+        doAuth env Nothing client @?= Left (CA.InvalidClient "BadSignature")
+
     describe "private_key_jwt authentication" $ do
       let client = appClient {tokenEndpointAuthMethod = PrivateKeyJwt}
       it "authenticates the client with a valid JWS assertion" $ do

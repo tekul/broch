@@ -24,12 +24,13 @@ import qualified Broch.OAuth2.Internal as I
 import           Broch.Model
 
 data ClientAuthError = InvalidRequest Text
-                     | InvalidClient
+                     | InvalidClient Text
                      | InvalidClient401
                        deriving (Show, Eq)
 
 instance ToJSON ClientAuthError where
     toJSON (InvalidRequest m) = object ["error" .= ("invalid_request" :: Text), "error_description" .= m]
+    toJSON (InvalidClient m)  = object ["error" .= ("invalid_client" :: Text),  "error_description" .= m]
     toJSON _                  = object ["error" .= ("invalid_client" :: Text)]
 
 
@@ -38,7 +39,7 @@ instance ToJSON ClientAuthError where
 -- On failure an invalid_client error is returned with a 400 error
 -- code, or 401 if the client used the Authorization header.
 -- See http://tools.ietf.org/html/rfc6749#section-5.2
-authenticateClient :: (Monad m, CPRG g)
+authenticateClient :: (Applicative m, Monad m, CPRG g)
                    => Map Text [Text]
                    -> Maybe ByteString
                    -> POSIXTime
@@ -55,41 +56,43 @@ authenticateClient env authzHeader now getClient withRng = runEitherT $ do
     -- authenticating
     client <- case (authzHeader, clid, secret, assertion, aType) of
         (Just h,  _, Nothing, Nothing, Nothing)         -> noteT InvalidClient401 $ basicAuth h
-        (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT InvalidClient    $ checkClientSecret cid sec
+        (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT (InvalidClient "Secret verification failed") $ checkClientSecret cid sec
         (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
-                                                        -> noteT InvalidClient $ clientAssertionAuth a
-        (Nothing, _, Nothing, Nothing, Nothing)         -> left InvalidClient
+                                                        -> fmapLT InvalidClient $ clientAssertionAuth a
+        (Nothing, _, Nothing, Nothing, Nothing)         -> left $ InvalidClient "No authentication information supplied"
         _                                               -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
     checkClientId clid client
 
     return client
   where
     clientAssertionAuth a = do
-        (hdr, claims)   <- hushT . hoistEither $ decodeClaims $ TE.encodeUtf8 a
+        let showT = T.pack . show
+        (hdr, claims)   <- hoistEither $ fmapL showT $ decodeClaims (TE.encodeUtf8 a)
         alg <- case hdr of
-            JwsH h -> just $ jwsAlg h
-            _      -> nothing
+            JwsH h -> return (jwsAlg h)
+            _      -> left "missing 'alg' in assertion header"
         -- TODO: Check audience
-        unless (jwtIss claims == jwtSub claims) nothing
-        IntDate expiry  <- hoistMaybe $ jwtExp claims
-        unless (expiry > now) nothing
+        unless (jwtIss claims == jwtSub claims) (left "assertion 'iss' and 'sub' are different")
+        IntDate expiry  <- jwtExp claims ?? "'exp' must be provided in assertion"
+        unless (expiry > now) (left "assertion has expired")
         -- TODO: Introduce jti caching
-        cid             <- hoistMaybe $ jwtSub claims
-        client          <- hoistMaybe =<< lift (getClient cid)
+        cid             <- jwtSub claims ?? "missing 'sub' claim in assertion"
+        mClient         <- lift $ getClient cid
+        client          <- mClient ?? "no such client"
         let authMethod = tokenEndpointAuthMethod client
         let authAlg    = tokenEndpointAuthAlg client
-        unless (isNothing authAlg || authAlg == Just alg) nothing
+        unless (isNothing authAlg || authAlg == Just alg) (left "assertion 'alg' does not match client registered algorithm")
         let jwt        = TE.encodeUtf8 a
 
         case authMethod of
             ClientSecretJwt -> do
-                sec  <- hoistMaybe $ clientSecret client
-                either (const nothing) (const $ just client) $ hmacDecode (TE.encodeUtf8 sec) jwt
+                sec  <- clientSecret client ?? "client does not have a secret"
+                either (left . showT) (const $ return client) $ hmacDecode (TE.encodeUtf8 sec) jwt
             PrivateKeyJwt   -> do
-                keys           <- hoistMaybe $ clientKeys client
+                keys           <- clientKeys client ?? "client has no keys"
                 validOrInvalid <- lift $ withRng $ \g -> decode g keys jwt
-                either (const nothing) (const $ just client) validOrInvalid
-            _               -> nothing
+                either (left . showT) (const $ return client) validOrInvalid
+            _               -> left "client is not registered to use assertion authentication"
 
     basicAuth h    = do
         (cid, secret) <- hoistMaybe decodedHeader
@@ -117,7 +120,7 @@ authenticateClient env authzHeader now getClient withRng = runEitherT $ do
 
     checkClientId cid client = case cid of
         Nothing -> return ()
-        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter is doesn't match authentication"
+        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter doesn't match authentication"
 
     maybeParam name = either (left . InvalidRequest) right $ I.maybeParam env name
 
