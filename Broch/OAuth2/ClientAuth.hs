@@ -69,8 +69,9 @@ authenticateClient env authzHeader now getClient withRng = runEitherT $ do
         let showT = T.pack . show
         (hdr, claims)   <- hoistEither $ fmapL showT $ decodeClaims (TE.encodeUtf8 a)
         alg <- case hdr of
-            JwsH h -> return (jwsAlg h)
-            _      -> left "missing 'alg' in assertion header"
+            JwsH h     -> return (jwsAlg h)
+            JweH _     -> left "encrypted assertions are not yet supported"
+            UnsecuredH -> left "assertion cannot be an unsecured JWT"
         -- TODO: Check audience
         unless (jwtIss claims == jwtSub claims) (left "assertion 'iss' and 'sub' are different")
         IntDate expiry  <- jwtExp claims ?? "'exp' must be provided in assertion"
