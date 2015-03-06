@@ -13,7 +13,7 @@ import Broch.OAuth2.Authorize
 import Broch.OAuth2.TestData
 
 spec :: Spec
-spec = describe "Authorization endpoint requests" $ evilClientErrorSpec >> authzRequestErrorSpec
+spec = describe "Authorization endpoint requests" $ authzRequestSpec >> evilClientErrorSpec >> authzRequestErrorSpec
 
 data TestUser = TU SubjectId
 
@@ -35,8 +35,17 @@ createIdToken = undefined
 createAccessToken = undefined
 
 invalidClient   = Left . MaliciousClient . InvalidClient
-invalidRedirect = Left $ MaliciousClient InvalidRedirectUri
+invalidRedirect = Left . MaliciousClient . InvalidRedirectUri
 clientError     = Left . ClientRedirectError
+
+authzRequestSpec =
+    describe "A successful authorization request" $ do
+        it "returns the expected redirect URL" $
+            doAuthz appEnv @?= Right "http://app?state=somestate&code=acode&scope=scope1%20scope2%20scope3"
+        it "formats the redirect URL correctly for a redirect URI with a query string" $
+            doAuthz appqEnv @?= Right "http://app?x=1&y=2&state=somestate&code=acode&scope=scope1%20scope2%20scope3"
+        it "missing redirect_uri is ok if client only has one registered" $
+            doAuthz adminEnv @?= Right "http://admin?state=somestate&code=acode&scope=scope1%20scope2%20scope3%20admin"
 
 evilClientErrorSpec =
     describe "A potentially malicious client request" $ do
@@ -45,15 +54,13 @@ evilClientErrorSpec =
       it "returns an error if client_id is missing" $
         doAuthz (Map.delete "client_id" appEnv) @?= invalidClient "Missing client_id"
       it "returns an error if redirect_uri doesn't match client's" $
-        doAuthz (Map.insert "redirect_uri" ["https://badclient"] appEnv) @?= invalidRedirect
+        doAuthz (Map.insert "redirect_uri" ["https://badclient"] appEnv) @?= invalidRedirect "redirect_uri is not registered for client"
       it "returns an error if redirect_uri is duplicated" $
-        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] appEnv) @?= invalidRedirect
+        doAuthz (Map.insert "redirect_uri" ["http://app", "http://app"] appEnv) @?= invalidRedirect "Duplicate redirect_uri"
       it "returns an error if redirect_uri contains a fragment" $
         doAuthz (Map.insert "redirect_uri" ["https://app#bad=yes"] appEnv) @?= Left (MaliciousClient FragmentInUri)
       it "returns an error if redirect_uri is missing for a client with multiple redirect_uris" $
         doAuthz (Map.delete "redirect_uri" appEnv) @?= Left (MaliciousClient MissingRedirectUri)
-      it "missing redirect_uri is ok if client only has one registered" $
-        doAuthz adminEnv @?= Right "http://admin?state=somestate&code=acode&scope=scope1%20scope2%20scope3%20admin"
 
 authzRequestErrorSpec =
     describe "A malformed authorization request" $ do
@@ -61,7 +68,10 @@ authzRequestErrorSpec =
         doAuthz (Map.insert "state" ["astate", "anotherstate"] appEnv) @?= clientError "http://app?error=invalid_request&error_description=Duplicate%20state"
       it "returns invalid_request for a missing response_type" $
         doAuthz (Map.delete "response_type" appEnv) @?= clientError "http://app?state=somestate&error=invalid_request&error_description=Missing%20response_type"
+      it "formats the error URL correctly for a redirect URI with a query string" $
+        doAuthz (Map.delete "response_type" appqEnv) @?= clientError "http://app?x=1&y=2&state=somestate&error=invalid_request&error_description=Missing%20response_type"
 
 
-appEnv = Map.fromList [("client_id", ["app"]), ("state", ["somestate"]), ("redirect_uri", ["http://app"]), ("response_type", ["code"])]
-adminEnv = Map.insert "client_id" ["admin"] $ Map.insert "redirect_uri" ["http://admin"] $ appEnv
+appEnv   = Map.fromList [("client_id", ["app"]), ("state", ["somestate"]), ("redirect_uri", ["http://app"]), ("response_type", ["code"])]
+appqEnv  = Map.insert "client_id" ["appq"] $ Map.delete "redirect_uri" appEnv
+adminEnv = Map.insert "client_id" ["admin"] $ Map.insert "redirect_uri" ["http://admin"] appEnv

@@ -35,7 +35,7 @@ data AuthorizationRequestError = MaliciousClient EvilClientError
                                | ClientRedirectError Text deriving (Show, Eq)
 
 data EvilClientError = InvalidClient Text
-                     | InvalidRedirectUri
+                     | InvalidRedirectUri Text
                      | MissingRedirectUri
                      | FragmentInUri
                      deriving (Show, Eq)
@@ -77,7 +77,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     responseParams <- lift $ authorizationResponse responseType client scope nonce uri
     let qs = TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
 
-    return $ T.concat [redirectURI, T.cons (separator responseType) qs]
+    return $ buildRedirect redirectURI (separator responseType) qs
   where
     authRequired Nothing       = False
     authRequired (Just maxAge) = now - authTime user > fromIntegral maxAge
@@ -136,7 +136,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                              Right rt -> separator rt
                              _        -> '?' -- TODO: Use client grant/response types
 
-            clientRedirect e = ClientRedirectError $ T.concat [redirectBase, errorURL sep st e]
+            clientRedirect e = ClientRedirectError $ buildRedirect redirectBase sep (errorURL st e)
             invalidRequest m = clientRedirect $ InvalidRequest m
 
         -- All that was just to work out how to handle the error.
@@ -160,6 +160,10 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
             left $ invalidRequest "A nonce is required for this response type"
 
         return (state, responseType, requestedScope, nonce, maxAge)
+
+    buildRedirect base sep url
+        | sep == '?' && isJust (T.find (== '?') base) = T.concat [base, T.cons '&' url]
+        | otherwise = T.concat [base, T.cons sep url]
 
     getMaxAge = do
         maxAge <- maybeParam env "max_age"
@@ -204,7 +208,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     -- If none is supplied, the default for the client will be used.
     getClientAndRedirectURI = do
         cid    <- requireParam env "client_id" `failW` (MaliciousClient . InvalidClient)
-        uri    <- maybeParam env "redirect_uri" `failW` const (MaliciousClient InvalidRedirectUri)
+        uri    <- maybeParam env "redirect_uri" `failW` (MaliciousClient . InvalidRedirectUri)
         client <- maybe (left $ MaliciousClient $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
         validateRedirectURI client uri
         right (client, uri)
@@ -215,17 +219,17 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
             [_] -> return ()
             _   -> left $ MaliciousClient MissingRedirectUri
         validateRedirectURI client (Just uri)
-          | T.any (== '#') uri        = left $ MaliciousClient FragmentInUri
-          | otherwise                 = if uri `elem` redirectURIs client
-                                            then right ()
-                                            else left $ MaliciousClient  InvalidRedirectUri
+          | T.any (== '#') uri = left $ MaliciousClient FragmentInUri
+          | otherwise          = if uri `elem` redirectURIs client
+                                     then right ()
+                                     else left . MaliciousClient $ InvalidRedirectUri "redirect_uri is not registered for client"
 
     failW :: Monad m => Either e1 a -> (e1 -> e2) -> EitherT e2 m a
     failW (Right a) _ = return a
     failW (Left m)  f = left $ f m
 
-errorURL :: Char -> Maybe Text -> AuthorizationError -> Text
-errorURL separator state authzError = T.cons separator $ TE.decodeUtf8 qs
+errorURL :: Maybe Text -> AuthorizationError -> Text
+errorURL state authzError = TE.decodeUtf8 qs
   where
     qs = renderSimpleQuery False $ addStateParam state params
     params = ("error", e) : maybe [] (\d -> [("error_description", d)]) desc
@@ -244,5 +248,3 @@ addStateParam state ps = maybe ps (\s -> ("state", TE.encodeUtf8 s) : ps) state
 -- Create a random authorization code
 generateCode :: IO ByteString
 generateCode = liftM Hex.encode $ randomBytes 8
-
-

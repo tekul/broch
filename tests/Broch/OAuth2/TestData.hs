@@ -80,6 +80,7 @@ adminClientScope = appClientScope ++ [CustomScope "admin"]
 jsClientScope    = map CustomScope ["weakscope"]
 
 getClient "app"   = return $ Just appClient
+getClient "appq"  = return $ Just appClient { redirectURIs = ["http://app?x=1&y=2"] }
 getClient "admin" = return $ Just adminClient
 getClient "js"    = return $ Just jsClient
 getClient _       = return Nothing
