@@ -62,12 +62,12 @@ openIdConfigSpec run =
             get "/.well-known/openid-configuration"
             statusIs 200
             json1 <- withResponse $ return . simpleBody
-            let Just cfg = decode $ json1 :: Maybe OpenIDConfiguration
+            let Just cfg = decode json1 :: Maybe OpenIDConfiguration
             assertEqual "Returned issuer should match" (issuer cfg) (issuer $ defaultOpenIDConfiguration "http://testapp")
             get $ TE.encodeUtf8 $ jwks_uri cfg
             json2 <- withResponse $ return . simpleBody
-            let Just jwks = decode $ json2 :: Maybe JwkSet
-            assertEqual "There should be one JWK" 1 (length $ keys jwks)
+            let Just ks = decode json2 :: Maybe JwkSet
+            assertEqual "There should be one JWK" 1 (length $ keys ks)
 
 
 userInfoRequest t = bearerAuth t >> get "/connect/userinfo"
@@ -78,18 +78,19 @@ openIdFlowsSpec run =
     describe "OpenID authentication flows" $ do
         let auth = authzRequest "app" redirectUri [OpenID]
             token = tokenRequest "app" "appsecret" redirectUri
-            nonce = ("nonce", "imthenonce")
-        describe "A request with response_type=code" $ do
+            nons = ("nonce", "imthenonce")
+        describe "A request with response_type=code" $
             it "Returns only a code from the authorization endpoint" $ run $ do
                 AuthzResponse Nothing Nothing (Just code) <- auth Code []
                 AccessTokenResponse t _ _ (Just _) (Just _) _ <- token AuthorizationCode code
                 userInfoRequest t
+                statusIs 200
 
         describe "A request with response_type=id_token" $ do
             it "Returns id_token" $ run $ do
-                AuthzResponse (Just _) Nothing Nothing <- auth IdTokenResponse [nonce]
+                AuthzResponse (Just _) Nothing Nothing <- auth IdTokenResponse [nons]
                 return ()
-            it "Requires openid scope" $ do
+            it "Requires openid scope" $
                 -- What behaviour do we want when scope is missing
                 -- but the respose_type is openid?
                 pending
@@ -97,7 +98,7 @@ openIdFlowsSpec run =
         describe "A request with response_type=code token" $ do
             it "Requires a nonce" $ run $ authzWithoutNonce CodeToken
             it "Supports code token response type" $ run $ do
-                AuthzResponse Nothing (Just _) (Just _) <- auth CodeToken [nonce]
+                AuthzResponse Nothing (Just _) (Just _) <- auth CodeToken [nons]
                 return ()
 
         describe "A request with response_type=code id_token" $ do

@@ -9,6 +9,7 @@ module Broch.Persist
     , createClient
     , getClientById
     , createApproval
+    , deleteApproval
     , getApproval
     , createUser
     , getUserById
@@ -20,7 +21,7 @@ import           Control.Applicative
 import           Control.Monad (void)
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Reader (ReaderT)
-import           Data.Aeson (ToJSON, encode, decodeStrict)
+import           Data.Aeson (encode, decodeStrict)
 import           Data.ByteString.Lazy (toStrict)
 import           Data.Maybe (fromJust)
 import           Database.Persist (insert, getBy, delete, deleteBy, Entity(..))

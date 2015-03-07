@@ -1,4 +1,5 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
+
 module Broch.Server where
 
 import           Control.Applicative
@@ -268,12 +269,12 @@ testBroch issuer pool = do
             uid       <- subjectId <$> getAuthId
             clntId    <- postParam "client_id"
             expiryTxt <- postParam "expiry"
-            scpParams <- postParams >>= return . (Map.lookup "scope")
+            scpParams <- liftM (Map.lookup "scope") postParams
 
             let Right (expiry, _) = decimal expiryTxt
                 scope    = maybe [] (map scopeFromName) scpParams
                 approval = Approval uid clntId scope (IntDate $ fromIntegral (expiry :: Int64))
-            liftIO $ saveApproval approval
+            _ <- liftIO $ saveApproval approval
             l <- getCachedLocation "/uhoh"
             clearCachedLocation
             -- Redirect to authorization doesn't seem to work with oictests
@@ -296,7 +297,7 @@ testBroch issuer pool = do
             Left RequiresReauthentication  -> cacheLocation >> redirect "/login"
 
       where
-        evilClientError e = status badRequest400 >> (text $ T.pack $ show e)
+        evilClientError e = status badRequest400 >> text (T.pack $ show e)
 
         fakeApproval _ _ requestedScope _ = return requestedScope
 
@@ -331,7 +332,7 @@ testBroch issuer pool = do
     getAuthId = do
         usr <- sessionLookup userIdKey
         case usr of
-            Just u  -> return $ (read $ T.unpack $ TE.decodeUtf8 u :: Usr)
+            Just u  -> return (read $ T.unpack $ TE.decodeUtf8 u :: Usr)
             Nothing -> cacheLocation >> redirect "/login"
 
 debug :: (MonadIO m, Show a) => a -> m ()
@@ -379,7 +380,7 @@ cacheLocation :: Handler ()
 cacheLocation = request >>= \r -> sessionInsert "_loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
 
 getCachedLocation :: ByteString -> Handler ByteString
-getCachedLocation defaultUrl = liftM (maybe defaultUrl id) $ sessionLookup "_loc"
+getCachedLocation defaultUrl = liftM (fromMaybe defaultUrl) $ sessionLookup "_loc"
 
 
 withBearerToken :: (B.ByteString -> IO (Maybe AccessGrant))

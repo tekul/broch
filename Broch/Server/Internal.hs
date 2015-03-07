@@ -32,6 +32,7 @@ where
 import Debug.Trace
 
 import Control.Applicative
+import Control.Arrow (second)
 import Control.Error
 import Control.Exception (SomeException, catch)
 import Control.Monad.Error
@@ -93,7 +94,7 @@ routerToApp loadSesh baseUrl route req respond = do
             let rd = RequestData
                       { waiReq  = req
                       , method  = m
-                      , qps     = toMap $ (\(n, v) -> (n, fromMaybe "" v)) <$> queryString req
+                      , qps     = toMap $ second (fromMaybe "") <$> queryString req
                       , pps     = toMap pParams
                       }
 
