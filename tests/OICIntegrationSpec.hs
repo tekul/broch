@@ -3,7 +3,7 @@
 
 module OICIntegrationSpec where
 
-import Data.Aeson (decode, fromJSON)
+import Data.Aeson (fromJSON, decode)
 import Data.Aeson.Types (Result(..))
 import Data.Aeson.QQ
 import qualified Data.Text.Encoding as TE
@@ -13,9 +13,10 @@ import Network.Wai.Test hiding (request)
 import Test.Hspec
 
 import Broch.Model
-import Broch.OpenID.Discovery
-import Broch.OpenID.Registration (ClientMetaData)
+import Broch.OpenID.Discovery (OpenIDConfiguration(issuer, jwks_uri), defaultOpenIDConfiguration)
+import Broch.OpenID.Registration (ClientMetaData(jwks), redirect_uris)
 import Broch.OAuth2.Token
+import Broch.OAuth2.TestData
 
 import OAuth2IntegrationSpec
 import WaiTest
@@ -23,13 +24,11 @@ import WaiTest
 spec :: Spec
 spec = do
     app <- runIO testapp
-    let run t = runTest app t
-    openIdConfigSpec run >> openIdFlowsSpec run
+    let run = runTest app
+    openIdConfigSpec run >> openIdFlowsSpec run >> clientRegistrationSpec run
 
 clientReg :: ClientMetaData
-clientReg = c
-  where
-    Success c = fromJSON $ [aesonQQ|
+Success clientReg = fromJSON $ [aesonQQ|
         { token_endpoint_auth_method: "client_secret_basic"
         , subject_type: "public"
         , application_type: "web"
@@ -40,12 +39,11 @@ clientReg = c
         , default_max_age: 3600
         , contacts: ["admin@rndsa19sui.com"]
         , redirect_uris: ["http://localhost/authz_cb"]
-        , jwks_uri: "http://localhost:8090/static/jwks.json"
         , grant_types: ["authorization_code", "implicit", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer:"]
         }
-|]
+    |]
 
-registerClient md = postJSON "/connect/register" md
+registerClient md = postJSON "/connect/register" md { jwks = Just (JwkSet testPublicJwks) }
 
 clientRegistrationSpec run =
     describe "OpenID Client registration" $ do
@@ -53,6 +51,9 @@ clientRegistrationSpec run =
         it "Supports dynamic registration" $ run $ do
             registerClient clientReg
             statusIs 201
+        it "Rejects registration with fragment in redirect URI" $ run $ do
+            registerClient $ clientReg  { redirect_uris = ["http://a.com", "http://b.com#x=4"]}
+            statusIs 400
 
 openIdConfigSpec run =
     describe "The .well-known endpoints" $ do
@@ -72,8 +73,7 @@ openIdConfigSpec run =
 userInfoRequest t = bearerAuth t >> get "/connect/userinfo"
 
 redirectUri = "http://localhost:8080/app"
--- TODO: Move OpenID tests to separate module and rename this module to
--- OAuth2IntegrationSpec.
+
 openIdFlowsSpec run =
     describe "OpenID authentication flows" $ do
         let auth = authzRequest "app" redirectUri [OpenID]

@@ -4,8 +4,9 @@ module Broch.OpenID.Registration where
 
 import           Control.Applicative (pure, (<$>))
 import           Data.Aeson
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isJust)
 import           Data.Text (Text)
+import qualified Data.Text as T
 import           GHC.Generics (Generic)
 import           Jose.Jwa
 import           Jose.Jwk
@@ -77,6 +78,7 @@ makeClient cid csec md = do
     idAlgs     <- makeAlgorithmPrefs (id_token_signed_response_alg md) (id_token_encrypted_response_alg md) (id_token_encrypted_response_enc md)
     infoAlgs   <- makeAlgorithmPrefs (userinfo_signed_response_alg md) (userinfo_encrypted_response_alg md) (userinfo_encrypted_response_enc md)
     reqObjAlgs <- makeAlgorithmPrefs (request_object_signing_alg   md) (request_object_encryption_alg md)   (request_object_encryption_enc md)
+    validateRedirectURIs (redirect_uris md)
     return Client
         { clientId = cid
         , clientSecret = Just csec
@@ -95,8 +97,12 @@ makeClient cid csec md = do
         , requestObjAlgs          = reqObjAlgs
         }
   where
+    validateRedirectURIs []     = Right ()
+    validateRedirectURIs (r:rs)
+        | isJust (T.find (== '#') r) = Left InvalidRedirectUri
+        | otherwise = validateRedirectURIs rs
     makeAlgorithmPrefs Nothing   Nothing  Nothing  = return Nothing
-    makeAlgorithmPrefs (Just s)  Nothing  Nothing  = return . Just $ AlgPrefs (Just s)        NotEncrypted
+    makeAlgorithmPrefs (Just s)  Nothing  Nothing  = return . Just $ AlgPrefs (Just s) NotEncrypted
     makeAlgorithmPrefs s         (Just a) (Just e) = return . Just $ AlgPrefs s (E a e)
     makeAlgorithmPrefs s         (Just a) Nothing  = return . Just $ AlgPrefs s (E a A128CBC_HS256)
     makeAlgorithmPrefs _         Nothing (Just _)  = Left (InvalidMetaData "Encryption 'alg' must be provided if 'enc' is set")
@@ -104,4 +110,3 @@ makeClient cid csec md = do
 instance FromJSON ClientMetaData
 
 instance ToJSON ClientMetaData
-
