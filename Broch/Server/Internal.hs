@@ -185,7 +185,7 @@ rawBytes b = modify (\rs -> rs { resBody = b }) >> throwError ResponseComplete
 text :: Text -> Handler ()
 text t = setContentType "text/plain; charset=utf-8" >> (rawBytes . BL.fromStrict $ TE.encodeUtf8 t)
 
-complete :: Handler ()
+complete :: Handler a
 complete = throwError ResponseComplete
 
 json :: A.ToJSON a => a -> Handler ()
@@ -211,8 +211,8 @@ sessionDelete k = do
 invalidateSession :: Handler ()
 invalidateSession = modify $ \rs -> rs { resSession = Nothing }
 
-methodNotAllowed :: Handler ()
+methodNotAllowed :: Handler a
 methodNotAllowed = status methodNotAllowed405 >> complete
 
-notFound :: Handler ()
+notFound :: Handler a
 notFound = status notFound404 >> complete

@@ -387,15 +387,24 @@ withBearerToken :: (B.ByteString -> IO (Maybe AccessGrant))
                 -> (AccessGrant -> Handler ())
                 -> Handler ()
 withBearerToken decodeToken requiredScope f = do
-    r <- request
-    case bearerToken r of
-        Nothing -> unauthorized
-        Just t  -> do
-            g <- liftIO $ decodeToken t
-            maybe unauthorized runWithToken g
+    t <- bearerToken
+    g <- liftIO $ decodeToken t
+    maybe unauthorized runWithToken g
   where
     unauthorized = status unauthorized401 >> setHeader "WWW-Authenticate" "Bearer" >> complete
-    bearerToken r = do
+
+    bearerToken = do
+        r  <- request
+        ps <- postParams
+        case msum [bearerHeader r, bearerBody ps] of
+            Just t  -> return t
+            Nothing -> unauthorized
+
+    bearerBody ps = case Map.lookup "access_token" ps of
+        Just [t] -> Just (TE.encodeUtf8 t)
+        _        -> Nothing
+
+    bearerHeader r = do
         h <- lookup hAuthorization $ W.requestHeaders r
         case B.split ' ' h of
             ["Bearer", t] -> Just t

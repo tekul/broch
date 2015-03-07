@@ -117,10 +117,21 @@ openIdFlowsSpec run =
             it "Includes at_hash in id_token"
                 pending
 
+        describe "A user info endpoint requests" $ do
+            it "Supports bearer_body tokens" $ run $ do
+                AuthzResponse Nothing Nothing (Just code) <- auth Code []
+                AccessTokenResponse t _ _ (Just _) (Just _) _ <- token AuthorizationCode code
+                post "/connect/userinfo" [("access_token", TE.decodeUtf8 t)]
+                statusIs 200
+
+            it "Rejects unauthorized requests" $ run $ do
+                get "/connect/userinfo"
+                statusIs 401
+
+
 authzWithoutNonce typ = do
     sendAuthzRequest "app" redirectUri [OpenID] typ []
     loginIfRequired "cat" "cat"
     expectInvalidRequest
 
 expectInvalidRequest = statusIs 302 >> getLocationParam "error" >>= assertEqual "invalid_request expected" "invalid_request"
-
