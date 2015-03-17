@@ -47,9 +47,6 @@ data OpenIDConfiguration = OpenIDConfiguration
     } deriving (Show, Generic)
 
 
-omitNothingOptions :: Options
-omitNothingOptions = defaultOptions { omitNothingFields = True }
-
 instance ToJSON OpenIDConfiguration where
     toJSON = genericToJSON omitNothingOptions
 

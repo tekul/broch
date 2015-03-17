@@ -33,9 +33,12 @@ Library
                     , Broch.OpenID.UserInfo
                     , Broch.Persist
                     , Broch.Server
+                    , Broch.Server.Config
                     , Broch.Server.Internal
                     , Broch.Server.Session
+                    , Broch.Test
   Other-Modules:      Broch.Scim
+                    , Broch.Persist.Internal
   Build-Depends:      base >= 4 && < 5
                     , time
                     , errors >= 1.4

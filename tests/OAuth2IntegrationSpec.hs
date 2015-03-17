@@ -24,6 +24,7 @@ import Web.ClientSession (getDefaultKey)
 import Broch.Model
 import Broch.Server
 import Broch.Server.Internal
+import Broch.Test
 import qualified Broch.Server.Session as Session
 import Broch.OAuth2.Token (AccessTokenResponse(..))
 import WaiTest

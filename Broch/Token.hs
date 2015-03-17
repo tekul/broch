@@ -24,7 +24,7 @@ import GHC.Generics
 
 import qualified Crypto.PubKey.RSA as RSA
 
-import Broch.Model
+import Broch.Model hiding (sub)
 import Broch.Random
 import Jose.Jwa
 import Jose.Jwk
@@ -131,10 +131,6 @@ claimsToAccessGrant claims = AccessGrant
               then Nothing
               else Just $ sub claims
 
-
-omitNothingOptions :: Options
-omitNothingOptions = defaultOptions { omitNothingFields = True }
-
 data Claims = Claims
     { iss :: Text
     , sub :: Text
@@ -153,4 +149,3 @@ instance ToJSON Claims where
 
 instance FromJSON Claims where
     parseJSON = genericParseJSON omitNothingOptions
-

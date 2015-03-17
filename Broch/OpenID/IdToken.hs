@@ -21,7 +21,7 @@ import Jose.Jwa
 import Jose.Jwt
 import qualified Jose.Internal.Base64 as B64
 
-import Broch.Model
+import Broch.Model hiding (sub)
 
 
 
@@ -39,9 +39,6 @@ data IdToken = IdToken
     , c_hash  :: !(Maybe Text)
     , at_hash :: !(Maybe Text)
     } deriving (Show, Generic)
-
-omitNothingOptions :: Options
-omitNothingOptions = defaultOptions { omitNothingFields = True }
 
 
 instance ToJSON IdToken where
@@ -100,4 +97,3 @@ idTokenHash client token = TE.decodeUtf8 $ B64.encode $ B.take l h
         ES384 -> hashDescrSHA384
         ES512 -> hashDescrSHA512
         None  -> error "id_token must be signed"
-

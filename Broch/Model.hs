@@ -5,6 +5,8 @@ module Broch.Model where
 import Control.Applicative (pure)
 import Crypto.Random (CPRG)
 import Data.Aeson
+import Data.Aeson.Types
+import Data.Default.Generics
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -58,19 +60,21 @@ scopeDescription s = case s of
     CustomScope n -> n
 
 scopeFromName :: Text -> Scope
-scopeFromName name = case name of
+scopeFromName n = case n of
     "openid"  -> OpenID
     "profile" -> Profile
     "email"   -> Email
     "phone"   -> Phone
     "address" -> Address
-    n         -> CustomScope n
+    nm        -> CustomScope nm
 
 formatScope :: [Scope] -> Text
 formatScope s = T.intercalate " " $ map scopeName s
 
 type LoadClient m = ClientId
                  -> m (Maybe Client)
+
+type CreateClient m = Client -> m ()
 
 type CreateAuthorization m s = Text
                             -> s
@@ -113,9 +117,18 @@ type CreateIdToken m = SubjectId        -- ^ The authenticated user
                     -> Maybe ByteString -- ^ Access token
                     -> m Jwt            -- ^ The token (either a JWS or JWE depending on the client)
 
+type DecodeAccessToken m = ByteString
+                        -> m (Maybe AccessGrant)
+
 type DecodeRefreshToken m = Client
                          -> Text                  -- ^ The refresh_token parameter
                          -> m (Maybe AccessGrant)
+
+type LookupAuthenticatedUser m s = Subject s => m s
+
+type LoadUserInfo m = SubjectId
+                   -> Client
+                   -> m UserInfo
 
 data Authorization = Authorization
     { authzSubject :: !SubjectId
@@ -218,6 +231,52 @@ data Client = Client
     , requestObjAlgs :: Maybe AlgPrefs
     } deriving (Show)
 
+type MT = Maybe Text
+
+data AddressClaims = AddressClaims
+    { formatted      :: !MT
+    , street_address :: !MT
+    , locality       :: !MT
+    , region         :: !MT
+    , postal_code    :: !MT
+    , country        :: !MT
+    } deriving (Generic, Show)
+
+data UserInfo = UserInfo
+    { sub                :: !SubjectId
+    , name               :: !MT
+    , given_name         :: !MT
+    , family_name        :: !MT
+    , middle_name        :: !MT
+    , nickname           :: !MT
+    , preferred_username :: !MT
+    , profile            :: !MT
+    , picture            :: !MT
+    , website            :: !MT
+    , email              :: !MT
+    , email_verified     :: !(Maybe Bool)
+    , gender             :: !MT
+    , birthdate          :: !MT
+    , zoneinfo           :: !MT
+    , locale             :: !MT
+    , phone_number       :: !MT
+    , phone_number_verified :: !(Maybe Bool)
+    , address            :: !(Maybe AddressClaims)
+    , updated_at         :: !(Maybe IntDate)
+    } deriving (Generic, Show)
+
+
+instance Default UserInfo
+
+instance ToJSON AddressClaims where
+    toJSON = genericToJSON omitNothingOptions
+
+instance ToJSON UserInfo where
+    toJSON = genericToJSON omitNothingOptions
+
+omitNothingOptions :: Options
+omitNothingOptions = defaultOptions { omitNothingFields = True }
+
 data JwePrefs = E JweAlg Enc
               | NotEncrypted
               deriving (Show, Generic)
@@ -265,4 +324,3 @@ responseTypes =
     , ("id_token token", TokenIdToken)
     , ("code id_token token", CodeTokenIdToken)
     ]
-
