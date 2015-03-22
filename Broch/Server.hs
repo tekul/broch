@@ -28,10 +28,7 @@ import           Jose.Jwt (Jwt(..), IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import           Network.HTTP.Conduit (simpleHttp)
-import qualified Text.Blaze.Html5 as H
-import           Text.Blaze.Html5.Attributes as HA hiding (scope, id)
 
-import           Broch.Server.Config
 import           Broch.Model hiding (Email)
 import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.ClientAuth
@@ -41,6 +38,8 @@ import           Broch.OpenID.IdToken
 import           Broch.OpenID.Registration
 import           Broch.OpenID.UserInfo
 import           Broch.Random
+import           Broch.Server.BlazeUI
+import           Broch.Server.Config
 import           Broch.Server.Internal
 import           Broch.Token
 
@@ -283,41 +282,6 @@ brochServer Config {..} (authenticatedUser, loginHandler) = do
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
-
-loginPage :: H.Html
-loginPage = H.html $ do
-    H.head $
-      H.title "Login."
-    H.body $
-        H.form H.! method "post" H.! action "/login" $ do
-            H.input H.! type_ "text" H.! HA.name "username"
-            H.input H.! type_ "password" H.! HA.name "password"
-            H.input H.! type_ "submit" H.! value "Login"
-
-approvalPage :: Client -> [Text] -> Int64 -> H.Html
-approvalPage client scopes now = H.docTypeHtml $ H.html $ do
-    H.head $
-      H.title "Approvals"
-    H.body $ do
-        H.h2 "Authorization Approval Request"
-        H.form H.! method "post" H.! action "/approval" $ do
-            H.input H.! type_ "hidden" H.! HA.name "client_id" H.! value (H.toValue (clientId client))
-            H.label H.! for "expiry" $ "Expires after"
-            H.select H.! HA.name "expiry" $ do
-                H.option H.! value (H.toValue oneDay) H.! selected "" $ "One day"
-                H.option H.! value (H.toValue oneWeek) $ "One week"
-                H.option H.! value (H.toValue oneMonth) $ "30 days"
-            forM_ scopes $ \s -> do
-                H.input H.! type_ "checkBox" H.! HA.name "scope" H.! value (H.toValue s) H.! checked ""
-                H.toHtml s
-                H.br
-
-            H.input H.! type_ "submit" H.! value "Approve"
-  where
-    aDay    = round posixDayLength :: Int64
-    oneDay  = now + aDay
-    oneWeek = now + 7*aDay
-    oneMonth = now + 30*aDay
 
 clearCachedLocation :: Handler ()
 clearCachedLocation = sessionDelete "_loc"
