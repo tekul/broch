@@ -58,7 +58,7 @@ data Config m s = Config
     , publicKeys                 :: [Jwk]
     , signingKeys                :: [Jwk]
     , responseTypesSupported     :: [ResponseType]
-    , supportedAlgorithms        :: SupportedAlgorithms
+    , algorithmsSupported        :: SupportedAlgorithms
     , clientAuthMethodsSupported :: [ClientAuthMethod]
     , createClient               :: CreateClient m
     , getClient                  :: LoadClient m
@@ -87,7 +87,7 @@ inMemoryConfig issuer = do
         , publicKeys  = [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
         , signingKeys = [RsaPrivateJwk kPr (Just "brochkey") (Just Sig) Nothing]
         , responseTypesSupported = [Code]
-        , supportedAlgorithms = defSupportedAlgorithms
+        , algorithmsSupported = defSupportedAlgorithms
         , clientAuthMethodsSupported = [ClientSecretBasic, ClientSecretJwt, PrivateKeyJwt]
         , getClient    = \cid -> liftIO $ Map.lookup cid <$> readMVar clients
         , createClient = \c -> liftIO $ modifyMVar_ clients $ \cs -> return $ Map.insert (clientId c) c cs
