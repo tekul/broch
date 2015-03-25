@@ -78,72 +78,20 @@ authenticatedSubject = do
 
 brochServer :: (Subject s) => Config IO s -> (Handler s, Handler ())-> IO Router
 brochServer config@Config {..} (authenticatedUser, loginHandler) = do
-    -- Create everything we need for the oauth endpoints
-    -- First we need an RSA key for signing tokens
-    let oidConfig = mkOpenIDConfiguration config
-        registerClient :: ClientMetaData -> IO (Either RegistrationError Client)
-        registerClient c = do
-            cid <- generateCode
-            sec <- generateCode
-            let retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
-                retrieveJwks uri = do
-                    -- TODO: Better HTTP client code. No redirect following
-                    js <- EitherT . liftIO $ (Right <$> simpleHttp (T.unpack uri))
-                        `catch` \(e :: SomeException) -> do
-                            let errMsg = T.pack ("Failed to retrieve JWKs from URI: " ++ show e)
-                            TIO.putStrLn errMsg
-                            return $ Left (InvalidMetaData errMsg)
-                    let jwkError s = T.pack ("Failed to decode retrieved client JWKs: " ++ s)
-                    either (left . InvalidMetaData . jwkError) (right . Just . keys) (eitherDecode' js)
-
-            -- retrieve client keys if URI set
-            runEitherT $ do
-                client <- hoistEither $ makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
-                ks     <- case clientKeysUri client of
-                    Just uri -> retrieveJwks uri
-                    Nothing  -> return $ clientKeys client
-                liftIO $ createClient client { clientKeys = ks }
-                return client
-
-        createIdToken uid aTime client nons now code aToken = do
-            let claims  = idTokenClaims issuerUrl client nons uid aTime now code aToken
-                rpKeys  = fromMaybe [] (clientKeys client)
-                csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
-                sigKeys = maybe signingKeys (: signingKeys) csKey
-                prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
-            token <- liftIO $ withCPRG $ \g -> createJwtToken g sigKeys rpKeys prefs claims
-            either (const $ error "Failed to create IdToken") return token
-
-
-        userInfoHandler = withBearerToken decodeAccessToken [OpenID] $ \g -> do
-            -- TODO: Handle missing client situation
-            Just client <- loadClient (granteeId g)
-            userInfo    <- liftIO $ getUserInfo (fromJust (granterId g)) client
-            let claims  =  scopedClaims (grantScope g) userInfo
-
-            case userInfoAlgs client of
-                Nothing -> json claims
-                Just (AlgPrefs Nothing NotEncrypted) -> json claims
-                Just a  -> do
-                    jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng signingKeys (fromMaybe [] (clientKeys client)) a claims
-                    case jwtRes of
-                        Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
-                        Left  e         -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
-
     let router path = case path of
           [""]         -> redirect "/home"
           ["home"]     -> text "Hello, I'm the home page"
           ["explode"]  -> error "Boom!"
           ("oauth":ps) -> case ps of
-              ["authorize"] -> authorizationHandler createIdToken
-              ["token"]     -> tokenHandler createIdToken
+              ["authorize"] -> authorizationHandler
+              ["token"]     -> tokenHandler
               _             -> notFound
           ["login"]    -> loginHandler
           ["logout"]   -> invalidateSession >> complete
           ["approval"] -> approvalHandler
           ("connect":ps) -> case ps of
               ["userinfo"] -> userInfoHandler
-              ["register"] -> registrationHandler registerClient
+              ["register"] -> registrationHandler
               _            -> notFound
           (".well-known":ps) -> case ps of
               ["openid-configuration"] -> json oidConfig
@@ -186,10 +134,41 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
     authenticateRO u p = liftIO $ authenticateResourceOwner u p
     createAccess  c gt scps now  = liftIO . createAccessToken c gt scps now
     decodeRefresh c t = liftIO $ decodeRefreshToken c t
+    oidConfig = mkOpenIDConfiguration config
 
+    createIdToken uid aTime client nons now code aToken = do
+        let claims  = idTokenClaims issuerUrl client nons uid aTime now code aToken
+            rpKeys  = fromMaybe [] (clientKeys client)
+            csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
+            sigKeys = maybe signingKeys (: signingKeys) csKey
+            prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
+        token <- liftIO $ withCPRG $ \g -> createJwtToken g sigKeys rpKeys prefs claims
+        either (const $ error "Failed to create IdToken") return token
 
-    registrationHandler :: RegisterClient IO -> Handler ()
-    registrationHandler registerClient = do
+    registerClient c = do
+        cid <- generateCode
+        sec <- generateCode
+        let retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
+            retrieveJwks uri = do
+                -- TODO: Better HTTP client code. No redirect following
+                js <- EitherT . liftIO $ (Right <$> simpleHttp (T.unpack uri))
+                    `catch` \(e :: SomeException) -> do
+                        let errMsg = T.pack ("Failed to retrieve JWKs from URI: " ++ show e)
+                        TIO.putStrLn errMsg
+                        return $ Left (InvalidMetaData errMsg)
+                let jwkError s = T.pack ("Failed to decode retrieved client JWKs: " ++ s)
+                either (left . InvalidMetaData . jwkError) (right . Just . keys) (eitherDecode' js)
+
+        -- retrieve client keys if URI set
+        runEitherT $ do
+            client <- hoistEither $ makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
+            ks     <- case clientKeysUri client of
+                Just uri -> retrieveJwks uri
+                Nothing  -> return $ clientKeys client
+            liftIO $ createClient client { clientKeys = ks }
+            return client
+
+    registrationHandler = do
         b <- body
         let invalidMetaData msg = status badRequest400 >> json (InvalidMetaData msg)
         case eitherDecode' b of
@@ -206,6 +185,21 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
                             json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuerUrl, "/client/", clientId c])]
                         Left  e -> status badRequest400 >> json e
             Right _            -> invalidMetaData "Client registration data must be a JSON Object"
+
+    userInfoHandler = withBearerToken decodeAccessToken [OpenID] $ \g -> do
+        -- TODO: Handle missing client situation
+        Just client <- loadClient (granteeId g)
+        userInfo    <- liftIO $ getUserInfo (fromJust (granterId g)) client
+        let claims  =  scopedClaims (grantScope g) userInfo
+
+        case userInfoAlgs client of
+            Nothing -> json claims
+            Just (AlgPrefs Nothing NotEncrypted) -> json claims
+            Just a  -> do
+                jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng signingKeys (fromMaybe [] (clientKeys client)) a claims
+                case jwtRes of
+                    Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
+                    Left  e         -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
 
     approvalHandler = httpMethod >>= \m -> case m of
         GET -> do
@@ -232,7 +226,7 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
 
         _    -> methodNotAllowed
 
-    authorizationHandler createIdToken = do
+    authorizationHandler = do
         -- request >>= debug . W.rawQueryString
 
         user <- authenticatedUser
@@ -265,7 +259,7 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
                     cacheLocation
                     redirect $ B.concat ["/approval", query]
 
-    tokenHandler createIdToken = do
+    tokenHandler = do
         r <- request
         let authzHdr = lookup hAuthorization $ W.requestHeaders r
         env    <- postParams
