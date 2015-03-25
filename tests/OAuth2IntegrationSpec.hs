@@ -22,7 +22,6 @@ import Test.Hspec
 import Web.ClientSession (getDefaultKey)
 
 import Broch.Model
-import Broch.Server
 import Broch.Server.Internal
 import Broch.Test
 import qualified Broch.Server.Session as Session

@@ -31,6 +31,7 @@ data SupportedAlgorithms = SupportedAlgorithms
     , requestObjectSigningAlgs    :: [JwsAlg]
     , requestObjectEncryptionAlgs :: [JweAlg]
     , requestObjectEncryptionEncs :: [Enc]
+    , clientAuthSigningAlgs       :: [JwsAlg]
     }
 
 defSupportedAlgorithms :: SupportedAlgorithms
@@ -44,6 +45,7 @@ defSupportedAlgorithms = SupportedAlgorithms
     , requestObjectSigningAlgs = opSigAlgs ++ [ES256, ES384, ES512]
     , requestObjectEncryptionAlgs = opEncAlgs
     , requestObjectEncryptionEncs = opEncEncs
+    , clientAuthSigningAlgs = opSigAlgs ++ [ES256, ES384, ES512]
     }
   where
     opSigAlgs = [RS256, RS384, RS512, HS256, HS384, HS512]
@@ -107,5 +109,5 @@ inMemoryConfig issuer = do
         , createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
         , decodeAccessToken = decodeJwtAccessToken kPr
         , decodeRefreshToken = decodeRefresh
-        , getUserInfo = undefined
+        , getUserInfo = error "getUserInfo has not been set"
         }

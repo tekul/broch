@@ -33,7 +33,7 @@ import           Broch.Model hiding (Email)
 import           Broch.OAuth2.Authorize
 import           Broch.OAuth2.ClientAuth
 import           Broch.OAuth2.Token
-import           Broch.OpenID.Discovery (defaultOpenIDConfiguration)
+import           Broch.OpenID.Discovery (mkOpenIDConfiguration)
 import           Broch.OpenID.IdToken
 import           Broch.OpenID.Registration
 import           Broch.OpenID.UserInfo
@@ -77,10 +77,10 @@ authenticatedSubject = do
 
 
 brochServer :: (Subject s) => Config IO s -> (Handler s, Handler ())-> IO Router
-brochServer Config {..} (authenticatedUser, loginHandler) = do
+brochServer config@Config {..} (authenticatedUser, loginHandler) = do
     -- Create everything we need for the oauth endpoints
     -- First we need an RSA key for signing tokens
-    let oidConfig = defaultOpenIDConfiguration issuerUrl
+    let oidConfig = mkOpenIDConfiguration config
         registerClient :: ClientMetaData -> IO (Either RegistrationError Client)
         registerClient c = do
             cid <- generateCode

@@ -13,7 +13,7 @@ import Network.Wai.Test hiding (request)
 import Test.Hspec
 
 import Broch.Model
-import Broch.OpenID.Discovery (OpenIDConfiguration(issuer, jwks_uri), defaultOpenIDConfiguration)
+import Broch.OpenID.Discovery (OpenIDConfiguration(issuer, jwks_uri))
 import Broch.OpenID.Registration (ClientMetaData(jwks), redirect_uris)
 import Broch.OAuth2.Token
 import Broch.OAuth2.TestData
@@ -63,7 +63,7 @@ openIdConfigSpec run =
             statusIs 200
             json1 <- withResponse $ return . simpleBody
             let Just cfg = decode json1 :: Maybe OpenIDConfiguration
-            assertEqual "Returned issuer should match" (issuer cfg) (issuer $ defaultOpenIDConfiguration "http://testapp")
+            assertEqual "Returned issuer should match" (issuer cfg) "http://testapp"
             get $ TE.encodeUtf8 $ jwks_uri cfg
             json2 <- withResponse $ return . simpleBody
             let Just ks = decode json2 :: Maybe JwkSet
@@ -103,8 +103,12 @@ openIdFlowsSpec run =
 
         describe "A request with response_type=code id_token" $ do
             it "Requires a nonce" $ run $ authzWithoutNonce CodeIdToken
-            it "Includes c_hash in id_token"
-                pending
+            it "Includes c_hash in id_token" $ run $ do
+                AuthzResponse (Just t) Nothing (Just c) <- auth CodeIdToken [nons]
+                --assertEqual "c_hash in Id token should match code" (c_hash idt) (Just $ idTokenHash appClient (TE.encodeUtf8 c))
+
+                -- TODO: Decode JWT, get c_hash and check value
+                return ()
 
         describe "A request with response_type=token id_token" $ do
             it "Requires a nonce" $ run $ authzWithoutNonce TokenIdToken
