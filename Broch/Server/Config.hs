@@ -60,6 +60,7 @@ data Config m s = Config
     , responseTypesSupported     :: [ResponseType]
     , algorithmsSupported        :: SupportedAlgorithms
     , clientAuthMethodsSupported :: [ClientAuthMethod]
+    , claimsSupported            :: [Text]
     , createClient               :: CreateClient m
     , getClient                  :: LoadClient m
     , createAuthorization        :: CreateAuthorization m s
@@ -89,6 +90,7 @@ inMemoryConfig issuer = do
         , responseTypesSupported = [Code]
         , algorithmsSupported = defSupportedAlgorithms
         , clientAuthMethodsSupported = [ClientSecretBasic, ClientSecretJwt, PrivateKeyJwt]
+        , claimsSupported = ["sub", "iss", "auth_time", "name", "given_name", "family_name", "email"]
         , getClient    = \cid -> liftIO $ Map.lookup cid <$> readMVar clients
         , createClient = \c -> liftIO $ modifyMVar_ clients $ \cs -> return $ Map.insert (clientId c) c cs
         , createAuthorization = \code subj c now scps nonce uri -> do

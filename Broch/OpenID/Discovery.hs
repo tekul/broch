@@ -34,7 +34,7 @@ data OpenIDConfiguration = OpenIDConfiguration
     , token_endpoint_auth_signing_alg_values_supported :: [JwsAlg]
     , display_values_supported :: Maybe [Text]
     , claim_types_supported :: Maybe [Text]
-    , claims_supported :: Maybe [Text]
+    , claims_supported :: [Text]
     , service_documentation :: Maybe Text
     , claims_locales_supported :: Maybe [Text]
     , ui_locales_supported :: Maybe [Text]
@@ -77,7 +77,7 @@ mkOpenIDConfiguration Config {..} = OpenIDConfiguration
     , token_endpoint_auth_signing_alg_values_supported = clientAuthSigningAlgs algorithmsSupported
     , display_values_supported = Nothing
     , claim_types_supported = Nothing
-    , claims_supported = Nothing
+    , claims_supported = claimsSupported
     , service_documentation = Nothing
     , claims_locales_supported = Nothing
     , ui_locales_supported = Nothing
