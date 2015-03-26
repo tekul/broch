@@ -142,8 +142,7 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
             csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
             sigKeys = maybe signingKeys (: signingKeys) csKey
             prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
-        token <- liftIO $ withCPRG $ \g -> createJwtToken g sigKeys rpKeys prefs claims
-        either (const $ error "Failed to create IdToken") return token
+        liftIO $ withCPRG $ \g -> createJwtToken g sigKeys rpKeys prefs claims
 
     registerClient c = do
         cid <- generateCode

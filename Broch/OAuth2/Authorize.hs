@@ -66,15 +66,16 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI
     let redirectURI = fromMaybe (defaultRedirectURI client) uri
+        errRedirect = errorRedirector redirectURI
 
     -- Decode the request, and fail with a client redirect if invalid
-    (state, responseType, requestedScope, nonce, maxAge) <- getAuthorizationRequest redirectURI client
+    (state, responseType, requestedScope, nonce, maxAge) <- fmapLT errRedirect $ getAuthorizationRequest client
     when (authRequired maxAge) $ left RequiresReauthentication
 
     scope <- lift $ resourceOwnerApproval user client requestedScope now
 
-    -- Create the successful response redirect
-    responseParams <- lift $ authorizationResponse responseType client scope nonce uri
+    -- Create the successful response redirect (unless id_token creation fails)
+    responseParams <- fmapLT errRedirect $ authorizationResponse responseType client scope nonce uri
     let qs = TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
 
     return $ buildRedirect redirectURI (separator responseType) qs
@@ -107,14 +108,14 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
                     $ idTokenResponse (Just code) (Just t)
 
     doCode client scope nonce uri = do
-        code <- genCode
-        createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
+        code <- lift genCode
+        lift $ createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
         return code
 
     codeParam code = return ("code", code)
 
     doAccessToken client scope = do
-        (t, _, ttl) <- createAccessToken (Just $ subjectId user) client Implicit scope now
+        (t, _, ttl) <- lift $ createAccessToken (Just $ subjectId user) client Implicit scope now
         let expires = B.pack $ show (round ttl :: Int)
         return (t, expires)
 
@@ -122,44 +123,45 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
         return [("access_token", token), ("token_type", "bearer"), ("expires_in", expires)]
 
     doIdToken client nonce code accessToken = do
-        Jwt t <- createIdToken (subjectId user) (authTime user) client nonce now code accessToken
-        return [("id_token", t)]
+        idt  <- lift $ createIdToken (subjectId user) (authTime user) client nonce now code accessToken
+        idt' <- case idt of
+            Right (Jwt jwt) -> return jwt
+            Left jwtErr     -> left (InvalidRequest $ T.pack ("Failed to create id_token " ++ show jwtErr))
+        return [("id_token", idt')]
 
     scopeParam scope = return $ case scope of
         [] -> []
         s  -> [("scope", TE.encodeUtf8 $ T.intercalate " " $ map scopeName s)]
 
-    getAuthorizationRequest redirectBase client = do
+    getAuthorizationRequest client = do
+        state          <- maybeParam env "state" `failW` InvalidRequest
+        responseType   <- hoistEither getResponseType
+        unless (checkResponseType client responseType) $ left UnauthorizedClient
+        maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` InvalidRequest
+        nonce          <- maybeParam env "nonce" `failW` InvalidRequest
+        maxAge         <- getMaxAge `failW` InvalidRequest
+        requestedScope <- checkScope client maybeScope `failW` InvalidRequest
+        let isOpenID   = OpenID `elem` requestedScope
+
+        -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
+        when (responseType == Token && isOpenID) $
+            left $ InvalidRequest "openid scope cannot be user with 'token' response type"
+        -- Implicit and Hybrid OpenID requests require a nonce
+        -- http://openid.net/specs/openid-connect-core-1_0.html#ImplicitAuthRequest
+        -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
+        when (responseType /= Code  && isOpenID && isNothing nonce) $
+            left $ InvalidRequest "A nonce is required for this response type"
+
+        return (state, responseType, requestedScope, nonce, maxAge)
+
+    errorRedirector :: Text -> AuthorizationError -> AuthorizationRequestError
+    errorRedirector redirectBase e =
         let stateParam = maybeParam env "state"
             st         = either (const Nothing) id stateParam
             sep        = case getResponseType of
                              Right rt -> separator rt
                              _        -> '?' -- TODO: Use client grant/response types
-
-            clientRedirect e = ClientRedirectError $ buildRedirect redirectBase sep (errorURL st e)
-            invalidRequest m = clientRedirect $ InvalidRequest m
-
-        -- All that was just to work out how to handle the error.
-        -- Now check the actual parameter values.
-        state          <- stateParam `failW` invalidRequest
-        responseType   <- getResponseType `failW` clientRedirect
-        unless (checkResponseType client responseType) $ left $ clientRedirect UnauthorizedClient
-        maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` invalidRequest
-        nonce          <- maybeParam env "nonce" `failW` invalidRequest
-        maxAge         <- getMaxAge `failW` invalidRequest
-        requestedScope <- checkScope client maybeScope `failW` invalidRequest
-        let isOpenID   = OpenID `elem` requestedScope
-
-        -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
-        when (responseType == Token && isOpenID) $
-            left $ invalidRequest "openid scope cannot be user with 'token' response type"
-        -- Implicit and Hybrid OpenID requests require a nonce
-        -- http://openid.net/specs/openid-connect-core-1_0.html#ImplicitAuthRequest
-        -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
-        when (responseType /= Code  && isOpenID && isNothing nonce) $
-            left $ invalidRequest "A nonce is required for this response type"
-
-        return (state, responseType, requestedScope, nonce, maxAge)
+        in ClientRedirectError $ buildRedirect redirectBase sep (errorURL st e)
 
     buildRedirect base sep url
         | sep == '?' && isJust (T.find (== '?') base) = T.concat [base, T.cons '&' url]

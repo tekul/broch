@@ -107,7 +107,12 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             idt <- if OpenID `elem` scp
                        then fmap Just $ lift $ createIdToken usr (authzAuthTime authz) client (authzNonce authz) now Nothing Nothing
                        else return Nothing
-            return (Just usr, idt, AuthorizationCode, scp)
+            idt' <- case idt of
+                Just (Left jwtErr) -> left $ InvalidRequest $ T.pack ("Failed to create id_token: " ++ show jwtErr)
+                Just (Right jwt)   -> return (Just jwt)
+                Nothing            -> return Nothing
+
+            return (Just usr, idt', AuthorizationCode, scp)
 
         ClientCredentials -> do
             scp <- getClientScope
@@ -187,5 +192,3 @@ validateAuthorization (Authorization _ issuedTo (IntDate issuedAt) _ _ authzURI 
 
 authCodeTTL :: NominalDiffTime
 authCodeTTL = 300
-
-

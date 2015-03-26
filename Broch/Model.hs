@@ -15,7 +15,7 @@ import Data.Time
 import Data.Time.Clock.POSIX
 import Data.Tuple (swap)
 import GHC.Generics
-import Jose.Jwt (Jwt, IntDate)
+import Jose.Jwt (Jwt, JwtError, IntDate)
 import Jose.Jwa (JwsAlg, JweAlg, Enc)
 import Jose.Jwk
 
@@ -108,14 +108,14 @@ type CreateAccessToken m = Maybe SubjectId    -- ^ The end user (resource owner)
                         -> POSIXTime          -- ^ Current time
                         -> m (ByteString, Maybe ByteString, TokenTTL)
 
-type CreateIdToken m = SubjectId        -- ^ The authenticated user
-                    -> POSIXTime        -- ^ The authentication time
-                    -> Client           -- ^ The client (audience)
-                    -> Maybe Text       -- ^ The client submitted nonce
-                    -> POSIXTime        -- ^ Current time
-                    -> Maybe ByteString -- ^ Authorization code
-                    -> Maybe ByteString -- ^ Access token
-                    -> m Jwt            -- ^ The token (either a JWS or JWE depending on the client)
+type CreateIdToken m = SubjectId                -- ^ The authenticated user
+                    -> POSIXTime                -- ^ The authentication time
+                    -> Client                   -- ^ The client (audience)
+                    -> Maybe Text               -- ^ The client submitted nonce
+                    -> POSIXTime                -- ^ Current time
+                    -> Maybe ByteString         -- ^ Authorization code
+                    -> Maybe ByteString         -- ^ Access token
+                    -> m (Either JwtError Jwt)  -- ^ The token (either a JWS or JWE depending on the client)
 
 type DecodeAccessToken m = ByteString
                         -> m (Maybe AccessGrant)
