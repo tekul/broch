@@ -150,18 +150,32 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
         sec <- generateCode
         let retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
             retrieveJwks uri = do
-                -- TODO: Better HTTP client code. No redirect following
-                js <- EitherT . liftIO $ (Right <$> simpleHttp (T.unpack uri))
-                    `catch` \(e :: SomeException) -> do
-                        let errMsg = T.pack ("Failed to retrieve JWKs from URI: " ++ show e)
-                        TIO.putStrLn errMsg
-                        return $ Left (InvalidMetaData errMsg)
+                jsn <- httpGet (T.unpack uri)
                 let jwkError s = T.pack ("Failed to decode retrieved client JWKs: " ++ s)
-                either (left . InvalidMetaData . jwkError) (right . Just . keys) (eitherDecode' js)
+                either (left . InvalidMetaData . jwkError) (right . Just . keys) (eitherDecode' jsn)
+
+            checkSectorIdentifierUri =
+                case sector_identifier_uri c of
+                    Just uri -> do
+                        jsn <- httpGet (T.unpack uri)
+                        let uriError s = T.pack ("Failed to decode sector_identifier_uri contents: " ++ s)
+                        ruris <- either (left . InvalidMetaData . uriError) right (eitherDecode' jsn :: Either String [Text])
+                        unless (foldl (\acc u -> acc && u `elem` ruris) True (redirect_uris c))
+                            (left (InvalidMetaData "Registered redirect_uri values do not match sector_identifier_uri contents"))
+
+                    Nothing  -> return ()
+
+            -- TODO: Better HTTP client code. No redirect following
+            httpGet uri = EitherT . liftIO $ (Right <$> simpleHttp uri)
+                `catch` \(e :: SomeException) -> do
+                    let errMsg = T.pack ("Failed to retrieve URI '" ++ uri ++ "': " ++ show e)
+                    TIO.putStrLn errMsg
+                    return $ Left (InvalidMetaData errMsg)
 
         -- retrieve client keys if URI set
         runEitherT $ do
             client <- hoistEither $ makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
+            checkSectorIdentifierUri
             ks     <- case clientKeysUri client of
                 Just uri -> retrieveJwks uri
                 Nothing  -> return $ clientKeys client
