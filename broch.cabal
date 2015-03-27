@@ -53,7 +53,7 @@ Library
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
-                    , jose-jwt      >= 0.4
+                    , jose-jwt      >= 0.4.2
                     , cryptohash >= 0.11
                     , crypto-pubkey >= 0.2
                     , cipher-aes >= 0.2
@@ -119,6 +119,7 @@ Test-suite tests
                     , hspec >= 1.6
                     , HUnit >= 1.2 && < 2
                     , QuickCheck >= 2.4
+                    , unordered-containers
                     , wai
                     , wai-extra >= 3.0.0.1
 

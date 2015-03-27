@@ -54,7 +54,7 @@ createJwtToken rng sigKeys encKeys prefs claims = case prefs of
             NotEncrypted -> case signed of
                 Jwt.Nested jwt -> return jwt
                 Jwt.Claims _   -> left $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
-            E alg enc    -> hoistEither =<< state (\g -> Jwt.encode g encKeys (Encrypted alg) (Just enc) payload)
+            E alg enc    -> hoistEither =<< state (\g -> Jwt.encode g encKeys (Encrypted alg) (Just enc) signed)
   where
     cBytes = toStrict (encode claims)
 

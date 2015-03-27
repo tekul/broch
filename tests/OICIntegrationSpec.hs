@@ -4,19 +4,18 @@
 module OICIntegrationSpec where
 
 import Data.Aeson (fromJSON)
-import Data.Aeson.Types (Result(..))
+import Data.Aeson.Types (Object, Result(..))
 import Data.Aeson.QQ
 import qualified Data.Text.Encoding as TE
 import Jose.Jwk
+import Jose.Jwa
 -- import Network.Wai.Middleware.RequestLogger (logStdoutDev)
-import Network.Wai.Test hiding (request)
 import Test.Hspec
 
 import Broch.Model
-import Broch.OpenID.Discovery (OpenIDConfiguration(issuer, jwks_uri))
-import Broch.OpenID.Registration (ClientMetaData(jwks), redirect_uris)
+import qualified Broch.OpenID.Discovery as D
+import Broch.OpenID.Registration
 import Broch.OAuth2.Token
-import Broch.OAuth2.TestData
 
 import OAuth2IntegrationSpec
 import WaiTest
@@ -38,12 +37,14 @@ Success clientReg = fromJSON $ [aesonQQ|
         , require_auth_time: true
         , default_max_age: 3600
         , contacts: ["admin@rndsa19sui.com"]
-        , redirect_uris: ["http://localhost/authz_cb"]
+        , redirect_uris: ["http://localhost:8080/app"]
         , grant_types: ["authorization_code", "implicit", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer:"]
         }
     |]
 
-registerClient md = postJSON "/connect/register" md { jwks = Just (JwkSet testPublicJwks) }
+registerClient md = do
+    postJSON "/connect/register" md { jwks_uri = Just "https://op.certification.openid.net:60129/export/jwk_60129.json" }
+
 
 clientRegistrationSpec run =
     describe "OpenID Client registration" $ do
@@ -51,6 +52,7 @@ clientRegistrationSpec run =
         it "Supports dynamic registration" $ run $ do
             registerClient clientReg
             statusIs 201
+
         it "Rejects registration with fragment in redirect URI" $ run $ do
             registerClient $ clientReg  { redirect_uris = ["http://a.com", "http://b.com#x=4"]}
             statusIs 400
@@ -70,7 +72,7 @@ openIdConfigSpec run =
 
 userInfoRequest t = bearerAuth t >> get "/connect/userinfo"
 
-redirectUri = "http://localhost:8080/app"
+redirectUri = head $ redirect_uris clientReg
 
 openIdFlowsSpec run =
     describe "OpenID authentication flows" $ do
@@ -88,6 +90,7 @@ openIdFlowsSpec run =
             it "Returns id_token" $ run $ do
                 AuthzResponse (Just _) Nothing Nothing <- auth IdTokenResponse [nons]
                 return ()
+
             it "Requires openid scope" $
                 -- What behaviour do we want when scope is missing
                 -- but the respose_type is openid?
@@ -131,6 +134,15 @@ openIdFlowsSpec run =
                 get "/connect/userinfo"
                 statusIs 401
 
+        describe "Encrypted response scenarios" $ do
+            it "Supports encrypted and signed ID tokens" $ run $ do
+                registerClient clientReg { id_token_signed_response_alg = Just RS256, id_token_encrypted_response_alg = Just RSA1_5, id_token_encrypted_response_enc = Just A128CBC_HS256 }
+                id' <- jsonField "client_id"
+                secret <- jsonField "client_secret"
+                AuthzResponse Nothing Nothing (Just code) <- authzRequest id' redirectUri [OpenID] Code []
+                AccessTokenResponse t _ _ _ _ _ <- tokenRequest id' secret redirectUri AuthorizationCode code
+                userInfoRequest t
+                statusIs 200
 
 authzWithoutNonce typ = do
     sendAuthzRequest "app" redirectUri [OpenID] typ []
