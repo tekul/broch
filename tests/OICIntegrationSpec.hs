@@ -3,7 +3,7 @@
 
 module OICIntegrationSpec where
 
-import Data.Aeson (fromJSON, decode)
+import Data.Aeson (fromJSON)
 import Data.Aeson.Types (Result(..))
 import Data.Aeson.QQ
 import qualified Data.Text.Encoding as TE
@@ -61,12 +61,10 @@ openIdConfigSpec run =
         it "OpenID Configuration and JWKs are returned" $ run $ do
             get "/.well-known/openid-configuration"
             statusIs 200
-            json1 <- withResponse $ return . simpleBody
-            let Just cfg = decode json1 :: Maybe OpenIDConfiguration
-            assertEqual "Returned issuer should match" (issuer cfg) "http://testapp"
-            get $ TE.encodeUtf8 $ jwks_uri cfg
-            json2 <- withResponse $ return . simpleBody
-            let Just ks = decode json2 :: Maybe JwkSet
+            cfg <- jsonBody
+            assertEqual "Returned issuer should match" (D.issuer cfg) "http://testapp"
+            get $ TE.encodeUtf8 $ D.jwks_uri cfg
+            ks <- jsonBody
             assertEqual "There should be one JWK" 1 (length $ keys ks)
 
 

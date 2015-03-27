@@ -8,11 +8,13 @@ import Control.Arrow (second)
 import Control.Monad (liftM, when, unless)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
-import Data.Aeson (encode, ToJSON)
+import Data.Aeson (encode, Result(..), fromJSON, eitherDecode', FromJSON, ToJSON)
+import Data.Aeson.Types (Value(..), Object)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as H
 import qualified Data.List as DL
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
@@ -157,6 +159,27 @@ mkRequest method url =
                        x -> x
                in (urlPath, H.parseQuery q)
 
+jsonBody :: FromJSON a => WaiTest a
+jsonBody = do
+    jsn <- jsonContent
+    case fromJSON jsn of
+        Success a -> return a
+        _         -> error "Failed to decode JSON"
+
+jsonField :: Text -> WaiTest Text
+jsonField name = do
+    Object jsn <- jsonContent
+    case H.lookup name jsn of
+        Just (String v) -> return v
+        _ -> dumpResponse >> error "Failed to find named string field in JSON content"
+
+jsonContent :: WaiTest Value
+jsonContent = do
+    jsn <- withResponse $ return . simpleBody
+    case eitherDecode' jsn of
+        Left e -> error $ "Failed to decode response body as JSON " ++ show e
+        Right a -> return a
+
 request content req = do
     TestState app oldCookies authz _ <- ST.get
     now <- liftIO getCurrentTime
@@ -188,4 +211,3 @@ addHeader hdr r@Request { requestHeaders = hs } = r { requestHeaders = hdr : hs 
 
 assertEqual :: (Show a, Eq a) => String -> a -> a -> WaiTest ()
 assertEqual msg a b = liftIO $ HUnit.assertBool (msg ++ ": " ++ show a ++ " /= " ++ show b) (a == b)
-
