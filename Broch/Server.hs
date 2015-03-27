@@ -147,11 +147,11 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
     registerClient c = do
         cid <- generateCode
         sec <- generateCode
-        let retrieveJwks :: Text -> EitherT RegistrationError IO (Maybe [Jwk])
+        let retrieveJwks :: Text -> EitherT RegistrationError IO [Jwk]
             retrieveJwks uri = do
                 jsn <- httpGet (T.unpack uri)
                 let jwkError s = T.pack ("Failed to decode retrieved client JWKs: " ++ s)
-                either (left . InvalidMetaData . jwkError) (right . Just . keys) (eitherDecode' jsn)
+                either (left . InvalidMetaData . jwkError) (right . keys) (eitherDecode' jsn)
 
             checkSectorIdentifierUri =
                 case sector_identifier_uri c of
@@ -176,7 +176,7 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
             client <- hoistEither $ makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
             checkSectorIdentifierUri
             ks     <- case clientKeysUri client of
-                Just uri -> retrieveJwks uri
+                Just uri -> Just <$> retrieveJwks uri
                 Nothing  -> return $ clientKeys client
             liftIO $ createClient client { clientKeys = ks }
             return client
