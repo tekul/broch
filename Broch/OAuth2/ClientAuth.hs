@@ -91,7 +91,7 @@ authenticateClient env authzHeader now getClient withRng = runEitherT $ do
                 either (left . showT) (const $ return client) $ hmacDecode (TE.encodeUtf8 sec) jwt
             PrivateKeyJwt   -> do
                 keys           <- clientKeys client ?? "client has no keys"
-                validOrInvalid <- lift $ withRng $ \g -> decode g keys jwt
+                validOrInvalid <- lift $ withRng $ \g -> decode g keys (Just $ JwsEncoding alg) jwt
                 either (left . showT) (const $ return client) validOrInvalid
             _               -> left "client is not registered to use assertion authentication"
 
@@ -123,6 +123,4 @@ authenticateClient env authzHeader now getClient withRng = runEitherT $ do
         Nothing -> return ()
         Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter doesn't match authentication"
 
-    maybeParam name = either (left . InvalidRequest) right $ I.maybeParam env name
-
-
+    maybeParam p = either (left . InvalidRequest) right $ I.maybeParam env p

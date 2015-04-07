@@ -159,15 +159,15 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
     appKey       = TE.encodeUtf8 $ fromJust $ clientSecret appClient
     Right (Jwt appJwt) = Jws.hmacEncode HS256 appKey appClaims
     Right (Jwt badSig) = Jws.hmacEncode HS256 "wrongkey" appClaims
-    Right (Jwt pkJwt)  = fst $ encode RNG testPrivateJwks (Signed RS256) Nothing (Claims appClaims)
+    Right (Jwt pkJwt)  = fst $ encode RNG testPrivateJwks (JwsEncoding RS256) (Claims appClaims)
     appClaims    = BL.toStrict $ A.encode $ clientClaims appClient ["anissuer"]
 
     assertionTypeParam = ("client_assertion_type", ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"])
     messedUp = Left $ CA.InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
     doAuth env hdr clnt = fmap clientId $ runIdentity $ CA.authenticateClient env hdr now (loadClient clnt) withTestRNG
-    loadClient c name
-      | clientId c == name = return $ Just c
-      | otherwise          = return Nothing
+    loadClient c id'
+      | clientId c == id' = return $ Just c
+      | otherwise         = return Nothing
 
 clientClaims client aud = JwtClaims
     { jwtIss = Just $ clientId client

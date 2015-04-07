@@ -15,7 +15,6 @@ import Control.Error
 import Control.Monad.State.Strict
 import Crypto.Random (CPRG)
 import Data.Aeson
-import Data.Aeson.Types
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict, fromStrict)
 import Data.Text (Text)
@@ -49,12 +48,12 @@ createJwtToken rng sigKeys encKeys prefs claims = case prefs of
         let payload = Jwt.Claims cBytes
         signed <- case s of
             Nothing -> return payload
-            Just a  -> fmap Jwt.Nested (hoistEither =<< state (\g -> Jwt.encode g sigKeys (Signed a) Nothing payload))
+            Just a  -> fmap Jwt.Nested (hoistEither =<< state (\g -> Jwt.encode g sigKeys (Jwt.JwsEncoding a) payload))
         case e of
             NotEncrypted -> case signed of
                 Jwt.Nested jwt -> return jwt
                 Jwt.Claims _   -> left $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
-            E alg enc    -> hoistEither =<< state (\g -> Jwt.encode g encKeys (Encrypted alg) (Just enc) signed)
+            E alg enc    -> hoistEither =<< state (\g -> Jwt.encode g encKeys (Jwt.JweEncoding alg enc) signed)
   where
     cBytes = toStrict (encode claims)
 

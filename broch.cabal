@@ -53,7 +53,7 @@ Library
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
-                    , jose-jwt      >= 0.4.2
+                    , jose-jwt      >= 0.5
                     , cryptohash >= 0.11
                     , crypto-pubkey >= 0.2
                     , cipher-aes >= 0.2
