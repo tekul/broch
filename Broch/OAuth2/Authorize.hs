@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Authorization request processing.
+--
+-- Front ends call the web-agnostic @processAuthorizationRequest@ function
+-- to process the request data.
+
 module Broch.OAuth2.Authorize
     ( AuthorizationRequestError (..)
     , EvilClientError (..)
@@ -29,39 +34,72 @@ import Broch.Model
 import Broch.Random
 import Broch.OAuth2.Internal
 
+-- | Error conditions returned by the @processAuthorizationRequest@ function.
+data AuthorizationRequestError
+    -- | An error which should not be returned to the client
+    -- but reported to the user instead. Typically an invalid
+    -- redirect_uri.
+    = MaliciousClient EvilClientError
+    -- | The user needs to be authenticated again.
+    -- Occurs, for example, when the OpenID client uses the @max_age@
+    -- request parameter to indicate that the user must have been
+    -- authenticated within a particular time window.
+    | RequiresReauthentication -- TODO add requested type (popup etc)
+    -- | The request has an error which should be reported to
+    -- the client via a redirect.
+    | ClientRedirectError Text deriving (Show, Eq)
 
-data AuthorizationRequestError = MaliciousClient EvilClientError
-                               | RequiresReauthentication -- TODO add requested type (popup etc)
-                               | ClientRedirectError Text deriving (Show, Eq)
+-- | Categories of "malicious client" error.
+-- Allows the front end to provide more information
+-- to the end user on why a request is invalid.
+data EvilClientError
+    = InvalidClient Text
+    | InvalidRedirectUri Text
+    | MissingRedirectUri
+    | FragmentInUri
+    deriving (Show, Eq)
 
-data EvilClientError = InvalidClient Text
-                     | InvalidRedirectUri Text
-                     | MissingRedirectUri
-                     | FragmentInUri
-                     deriving (Show, Eq)
-
-data AuthorizationError = InvalidRequest Text
-                        | UnauthorizedClient
-                        | AccessDenied
-                        | UnsupportedResponseType
-                        | InvalidScope Text
-                        | ServerError
-                        | Unavailable
+-- | Authorization errors which will be reported to the client via a redirect.
+-- See the OAuth2 spec for more information.
+data AuthorizationError
+    = InvalidRequest Text
+    | UnauthorizedClient
+    | AccessDenied
+    | UnsupportedResponseType
+    | InvalidScope Text
+    | ServerError
+    | Unavailable
 
 type GenerateCode m = m ByteString
 type ResourceOwnerApproval m s = s -> Client -> [Scope] -> POSIXTime -> m [Scope]
 
 processAuthorizationRequest :: (Monad m, Subject s)
-                            => LoadClient m
-                            -> GenerateCode m
-                            -> CreateAuthorization m s
-                            -> ResourceOwnerApproval m s
-                            -> CreateAccessToken m
-                            -> CreateIdToken m
-                            -> s
-                            -> Map.Map Text [Text]
-                            -> POSIXTime
-                            -> m (Either AuthorizationRequestError Text)
+    -- | Function to load a client
+    => LoadClient m
+    -- | Function to generate an authorization code
+    -> GenerateCode m
+    -- | Function to store the authorization request for retrieval at the token endpoint.
+    -> CreateAuthorization m s
+    -- | Function which obtains the resource owner's approval for the request.
+    -- May involve a UI interaction, if the client has not previously been granted access.
+    -> ResourceOwnerApproval m s
+    -- | Creates the access token which will be returned for implicit grant or
+    -- OpenID hybrid grant requests. If these aren't enabled it won't be invoked.
+    -> CreateAccessToken m
+    -- | Creates the ID token which will be returned with the authorization
+    -- response for the relevant OpenID connect requests.
+    -> CreateIdToken m
+    -- | The currently authenticated user. The front end should authenticate the user
+    -- before calling this function.
+    -> s
+    -- | The authorization request parameters.
+    -> Map.Map Text [Text]
+    -- | The current time.
+    -> POSIXTime
+    -- | The successful redirect URL which the front end should return to the client.
+    -- If an error is returned, the front end's behaviour will depend on the
+    -- specific error type as defined above.
+    -> m (Either AuthorizationRequestError Text)
 processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
     -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI
