@@ -9,7 +9,6 @@ module Broch.OAuth2.Authorize
     ( AuthorizationRequestError (..)
     , EvilClientError (..)
     , processAuthorizationRequest
-    , generateCode
     )
 where
 
@@ -22,7 +21,6 @@ import Data.List (sort)
 import Data.Time.Clock.POSIX
 import Data.Text (Text)
 
-import qualified Data.ByteString.Base16 as Hex
 import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -31,7 +29,6 @@ import Network.HTTP.Types
 import Jose.Jwt (Jwt(..))
 
 import Broch.Model
-import Broch.Random
 import Broch.OAuth2.Internal
 
 -- | Error conditions returned by the @processAuthorizationRequest@ function.
@@ -284,7 +281,3 @@ errorURL state authzError = TE.decodeUtf8 qs
 
 addStateParam :: Maybe Text -> [SimpleQueryItem] -> [SimpleQueryItem]
 addStateParam state ps = maybe ps (\s -> ("state", TE.encodeUtf8 s) : ps) state
-
--- Create a random authorization code
-generateCode :: IO ByteString
-generateCode = liftM Hex.encode $ randomBytes 8

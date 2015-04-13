@@ -10,6 +10,7 @@ import           Data.Aeson as A hiding (json)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Base16 as Hex
 import qualified Data.HashMap.Strict as HM
 import           Data.Int (Int64)
 import           Data.List (intersect)
@@ -289,6 +290,10 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
+
+-- Create a random authorization code
+generateCode :: IO ByteString
+generateCode = liftM Hex.encode $ randomBytes 8
 
 clearCachedLocation :: Handler ()
 clearCachedLocation = sessionDelete "_loc"
