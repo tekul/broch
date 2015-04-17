@@ -194,7 +194,9 @@ data ClientAuthMethod = ClientSecretBasic
                       | ClientSecretJwt
                       | PrivateKeyJwt
                       | ClientAuthNone
-                        deriving (Eq, Show, Read)
+                        deriving (Generic, Eq, Show, Read)
+
+instance Default ClientAuthMethod
 
 instance FromJSON ClientAuthMethod where
     parseJSON = withText "ClientAuthMethod" $ \t -> case t of
@@ -229,7 +231,9 @@ data Client = Client
     , idTokenAlgs    :: Maybe AlgPrefs
     , userInfoAlgs   :: Maybe AlgPrefs
     , requestObjAlgs :: Maybe AlgPrefs
-    } deriving (Show)
+    } deriving (Generic, Show)
+
+instance Default Client
 
 type MT = Maybe Text
 

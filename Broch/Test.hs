@@ -26,9 +26,9 @@ import           Broch.Server.Config
 
 testClients :: [Client]
 testClients =
-    [ Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] ["http://admin"]              300 300 [] True ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing
-    , Client "cf"    Nothing              [ResourceOwner]                        ["http://cf.com"]             300 300 [] True ClientAuthNone Nothing Nothing Nothing Nothing Nothing Nothing
-    , Client "app"   (Just "appsecret")   [AuthorizationCode, Implicit, RefreshToken]  ["http://localhost:8080/app"] 300 300 [OpenID, CustomScope "scope1", CustomScope "scope2"] False ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing
+    [ DD.def { clientId = "admin", clientSecret = Just "adminsecret", authorizedGrantTypes = [ClientCredentials, AuthorizationCode], redirectURIs = ["http://admin"], tokenEndpointAuthMethod = ClientSecretBasic }
+    , DD.def { clientId = "cf", authorizedGrantTypes = [ResourceOwner], redirectURIs = ["http://cf.client"], tokenEndpointAuthMethod = ClientAuthNone }
+    , DD.def { clientId = "app", clientSecret = Just "appsecret", authorizedGrantTypes = [AuthorizationCode, Implicit, RefreshToken], redirectURIs = ["http://localhost:8080/app"], tokenEndpointAuthMethod = ClientSecretBasic, allowedScope = [OpenID, CustomScope "scope1", CustomScope "scope2"] }
     ]
 
 testUsers :: [ScimUser]
