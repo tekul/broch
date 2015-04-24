@@ -25,21 +25,28 @@ type TokenTTL = NominalDiffTime
 
 type ClientId = Text
 
--- The unique identifier assigned to a user (typically a UUID)
+type Nonce    = Text
+
+-- | The unique identifier assigned to a user (typically a UUID).
 type SubjectId = Text
 
+-- | Represents an authenticated user.
 class Subject s where
     subjectId :: s -> SubjectId
     authTime  :: s -> POSIXTime
 
-
-data Scope = OpenID
-           | Profile
-           | Email
-           | Phone
-           | Address
-           | CustomScope Text
-             deriving (Eq, Ord, Show)
+-- | Standard scopes supported by OpenID Connect.
+--
+-- Other requested scopes which are not part of the standard
+-- will be created using the @CustomScope@ constructor.
+data Scope
+    = OpenID
+    | Profile
+    | Email
+    | Phone
+    | Address
+    | CustomScope Text
+    deriving (Eq, Ord, Show)
 
 scopeName :: Scope -> Text
 scopeName s = case s of
@@ -71,64 +78,131 @@ scopeFromName n = case n of
 formatScope :: [Scope] -> Text
 formatScope s = T.intercalate " " $ map scopeName s
 
-type LoadClient m = ClientId
-                 -> m (Maybe Client)
+-- | Load a client by ID.
+type LoadClient m
+     = ClientId
+    -> m (Maybe Client)
 
-type CreateClient m = Client -> m ()
+-- | Creates a new client.
+--
+-- Called by the client registration endpoint.
+type CreateClient m
+     = Client
+    -> m ()
 
-type CreateAuthorization m s = Text
-                            -> s
-                            -> Client
-                            -> POSIXTime
-                            -> [Scope]
-                            -> Maybe Text
-                            -> Maybe Text
-                            -> m ()
+-- | Stores the data for a successful authorization code request
+-- so that it can be loaded later at the token endpoint.
+type CreateAuthorization m s
+     = Text
+    -> s
+    -> Client
+    -> POSIXTime
+    -> [Scope]
+    -> Maybe Nonce
+    -> Maybe Text
+    -> m ()
 
-type LoadAuthorization m = Text
-                        -> m (Maybe Authorization)
+type LoadAuthorization m
+     = Text
+    -> m (Maybe Authorization)
 
-type AuthenticateResourceOwner m = Text
-                                -> Text
-                                -> m (Maybe SubjectId)
+-- | Authenticate the user using the resource owner password grant.
+--
+-- <http://tools.ietf.org/html/rfc6749#section-1.3.3>.
+type AuthenticateResourceOwner m
+    -- | The username
+     = Text
+    -- | The plaintext password, submitted by the client
+    -> Text
+    -> m (Maybe SubjectId)
 
-type LoadApproval m = SubjectId
-                   -> Client
-                   -> POSIXTime
-                   -> m (Maybe Approval)
+-- | Find the authorization consent (approval) granted by a user to a client.
+--
+-- Called at the authorization endpoint to check whether the user has already
+-- granted the requested access. If not, they will be prompted to make the
+-- decision whether to approve the grant or not, or to approve a subset of the
+-- requested scope.
+type LoadApproval m
+    -- | The end user (resource owner) who approved the request
+     = SubjectId
+    -- | The client to which the user granted access
+    -> Client
+    -- | The current time, to check for expiry
+    -> POSIXTime
+    -- | The approval if it exists and has not expired
+    -> m (Maybe Approval)
 
-type CreateApproval m = Approval
-                     -> m ()
+type CreateApproval m
+     = Approval
+    -> m ()
 
 
-type CreateAccessToken m = Maybe SubjectId    -- ^ The end user (resource owner)
-                        -> Client             -- ^ The OAuth client the token will be issued to
-                        -> GrantType          -- ^ The grant type under which the token was requested
-                        -> [Scope]            -- ^ The scope granted to the client
-                        -> POSIXTime          -- ^ Current time
-                        -> m (ByteString, Maybe ByteString, TokenTTL)
+type CreateAccessToken m
+    -- | The end user (resource owner)
+     = Maybe SubjectId
+    -- | The OAuth client the token will be issued to
+    -> Client
+    -- | The grant type under which the token was requested
+    -> GrantType
+    -- | The scope granted to the client
+    -> [Scope]
+    -- | Current time
+    -> POSIXTime
+    -> m (ByteString, Maybe ByteString, TokenTTL)
 
-type CreateIdToken m = SubjectId                -- ^ The authenticated user
-                    -> POSIXTime                -- ^ The authentication time
-                    -> Client                   -- ^ The client (audience)
-                    -> Maybe Text               -- ^ The client submitted nonce
-                    -> POSIXTime                -- ^ Current time
-                    -> Maybe ByteString         -- ^ Authorization code
-                    -> Maybe ByteString         -- ^ Access token
-                    -> m (Either JwtError Jwt)  -- ^ The token (either a JWS or JWE depending on the client)
+type CreateIdToken m
+    -- | The authenticated user
+     = SubjectId
+    -- | The authentication time
+    -> POSIXTime
+    -- | The client (audience)
+    -> Client
+    -- | The client submitted nonce
+    -> Maybe Text
+    -- | Current time
+    -> POSIXTime
+    -- | Authorization code
+    -> Maybe ByteString
+    -- | Access token
+    -> Maybe ByteString
+    -- | The token (either a JWS or JWE depending on the client)
+    -> m (Either JwtError Jwt)
 
-type DecodeAccessToken m = ByteString
-                        -> m (Maybe AccessGrant)
+-- | Converts the access token submitted by a client into the access grant data.
+--
+-- Depending on the token creation function, this may involve decoding the information
+-- from the token (if the token is a JWT, for example) or loading the data from persistent
+-- storage.
+type DecodeAccessToken m
+    -- | The token as submitted by the client
+     = ByteString
+    -- | The access grant if the token is valid
+    -> m (Maybe AccessGrant)
 
-type DecodeRefreshToken m = Client
-                         -> Text                  -- ^ The refresh_token parameter
-                         -> m (Maybe AccessGrant)
+-- | Converts a refresh token submitted by a client into the corresponding access grant data.
+type DecodeRefreshToken m
+    -- | The authenticated client submitting the request
+     = Client
+    -- | The refresh_token parameter
+    -> Text
+    -- | The access grant if the token is valid
+    -> m (Maybe AccessGrant)
 
+-- | Obtains the currently authenticated user
+--
+-- This function will usually be written in a web handler monad and will
+-- short-circuit if the user is not authenticated, redirecting to a login
+-- page if the user is not authenticated, and then re-instating the original request.
 type LookupAuthenticatedUser m s = Subject s => m s
 
-type LoadUserInfo m = SubjectId
-                   -> Client
-                   -> m UserInfo
+-- | Loads the data for a user info response
+type LoadUserInfo m
+    -- | The authenticated user whose data is being requested
+     = SubjectId
+    -- | The client to whom the user is being authenticated
+    -> Client
+    -- | The user info data
+    -> m UserInfo
 
 data Authorization = Authorization
     { authzSubject :: !SubjectId
@@ -149,20 +223,22 @@ data AccessGrant = AccessGrant
     } deriving (Eq, Show)
 
 data Approval = Approval
-    { approverId      :: SubjectId   -- The user
+    { approverId      :: SubjectId
     , approvedClient  :: ClientId
     , approvedScope   :: [Scope]
     , approvalExpiry  :: IntDate
     } deriving (Show)
 
 
-data GrantType = AuthorizationCode
-               | RefreshToken
-               | ResourceOwner
-               | ClientCredentials
-               | Implicit
-               | JwtBearer         -- ^ <http://tools.ietf.org/html/draft-ietf-oauth-jwt-bearer-09>
-                 deriving (Show, Read, Eq)
+data GrantType
+    = AuthorizationCode
+    | RefreshToken
+    | ResourceOwner
+    | ClientCredentials
+    | Implicit
+    -- | <http://tools.ietf.org/html/draft-ietf-oauth-jwt-bearer-09>
+    | JwtBearer
+    deriving (Show, Read, Eq)
 
 instance ToJSON GrantType where
     toJSON = String . grantTypeName
@@ -189,14 +265,16 @@ grantTypeNames = map swap grantTypes
 grantTypeName :: GrantType -> Text
 grantTypeName gt = fromJust $ lookup gt grantTypeNames
 
-data ClientAuthMethod = ClientSecretBasic
-                      | ClientSecretPost
-                      | ClientSecretJwt
-                      | PrivateKeyJwt
-                      | ClientAuthNone
-                        deriving (Generic, Eq, Show, Read)
+data ClientAuthMethod
+    = ClientSecretBasic
+    | ClientSecretPost
+    | ClientSecretJwt
+    | PrivateKeyJwt
+    | ClientAuthNone
+    deriving (Generic, Eq, Show, Read)
 
-instance Default ClientAuthMethod
+instance Default ClientAuthMethod where
+    def = ClientSecretBasic
 
 instance FromJSON ClientAuthMethod where
     parseJSON = withText "ClientAuthMethod" $ \t -> case t of
@@ -292,14 +370,17 @@ instance FromJSON JwePrefs
 instance ToJSON AlgPrefs
 instance FromJSON AlgPrefs
 
-data ResponseType = Code
-                  | Token
-                  | IdTokenResponse
-                  | CodeIdToken
-                  | CodeToken
-                  | TokenIdToken
-                  | CodeTokenIdToken
-                    deriving (Eq, Show)
+-- | Standard OAuth2 "code" and "token" response types and
+-- OpenID connect "hybrid" response types.
+data ResponseType
+    = Code
+    | Token
+    | IdTokenResponse
+    | CodeIdToken
+    | CodeToken
+    | TokenIdToken
+    | CodeTokenIdToken
+    deriving (Eq, Show)
 
 responseTypeName :: ResponseType -> Text
 responseTypeName t = case t of

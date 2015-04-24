@@ -2,9 +2,6 @@
 
 module Broch.Server.Config where
 
--- Configuration module for everything we could possibly want :)
---
-
 import           Control.Applicative
 import           Control.Monad.IO.Class
 import           Control.Concurrent.MVar
@@ -74,8 +71,11 @@ data Config m s = Config
     , getUserInfo                :: LoadUserInfo m
     }
 
-
-inMemoryConfig :: (MonadIO m, Subject s) => Text -> IO (Config m s)
+-- | Creates a configuration using in-memory storage for simple testing.
+inMemoryConfig :: (MonadIO m, Subject s)
+    -- | The issuer (the external URL used to access your server)
+    => Text
+    -> IO (Config m s)
 inMemoryConfig issuer = do
     clients        <- newMVar Map.empty
     authorizations <- newMVar Map.empty
