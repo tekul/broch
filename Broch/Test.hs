@@ -14,6 +14,7 @@ import qualified Data.Text.Encoding as TE
 import           Data.UUID (toString)
 import           Data.UUID.V4
 import           Database.Persist.Sql (ConnectionPool, runMigrationSilent, runSqlPersistMPool)
+import           Web.Routing.TextRouting
 
 import           Broch.Model
 import           Broch.Persist (persistBackend)
@@ -42,13 +43,19 @@ testUsers =
     , DD.def { scimUserName = "dog", scimPassword = Just "dog" }
     ]
 
-testBroch :: Text -> ConnectionPool -> IO Router
+testBroch :: Text -> ConnectionPool -> IO (RoutingTree (Handler ()))
 testBroch issuer pool = do
     _ <- runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
     mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
     mapM_ createUser testUsers
     config <- persistBackend pool <$> inMemoryConfig issuer
-    brochServer config (authenticatedSubject, passwordLoginHandler (authenticateResourceOwner config))
+    let extraRoutes =
+            [ ("/home",   text "Hello, I'm the home page")
+            , ("/login",  passwordLoginHandler (authenticateResourceOwner config))
+            , ("/logout", invalidateSession >> complete)
+            ]
+        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer config authenticatedSubject) extraRoutes
+    return routingTable
   where
     createUser scimData = do
         now <- Just <$> liftIO getCurrentTime

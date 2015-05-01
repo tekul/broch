@@ -29,6 +29,7 @@ import           Jose.Jwt (Jwt(..), IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import           Network.HTTP.Conduit (simpleHttp)
+import           Web.Routing.TextRouting
 
 import           Broch.Model hiding (Email)
 import           Broch.OAuth2.Authorize
@@ -77,31 +78,18 @@ authenticatedSubject = do
         Nothing -> cacheLocation >> redirect "/login"
 
 
-brochServer :: (Subject s) => Config IO s -> (Handler s, Handler ())-> IO Router
-brochServer config@Config {..} (authenticatedUser, loginHandler) = do
-    let router path = case path of
-          [""]         -> redirect "/home"
-          ["home"]     -> text "Hello, I'm the home page"
-          ["explode"]  -> error "Boom!"
-          ("oauth":ps) -> case ps of
-              ["authorize"] -> authorizationHandler
-              ["token"]     -> tokenHandler
-              _             -> notFound
-          ["login"]    -> loginHandler
-          ["logout"]   -> invalidateSession >> complete
-          ["approval"] -> approvalHandler
-          ("connect":ps) -> case ps of
-              ["userinfo"] -> userInfoHandler
-              ["register"] -> registrationHandler
-              _            -> notFound
-          (".well-known":ps) -> case ps of
-              ["openid-configuration"] -> json oidConfig
-              ["jwks"]                 -> json $ JwkSet publicKeys
-              _                        -> notFound
-          _            -> notFound
-
-    return router
-
+brochServer :: (Subject s) => Config IO s -> Handler s -> RoutingTree (Handler ())
+brochServer config@Config {..} authenticatedUser =
+    foldl (\tree (r, h) -> addToRoutingTree r h tree) emptyRoutingTree
+        [ ("/oauth/authorize",  authorizationHandler)
+        , ("/oauth/token",      tokenHandler)
+        , ("/approval",         approvalHandler)
+        , ("/connect/userinfo", userInfoHandler)
+        , ("/connect/register", registrationHandler)
+        , (".well-known/openid-configuration", json oidConfig)
+        , (".well-known/jwks",  json $ JwkSet publicKeys)
+        ]
+  where
 {--
 
         -- SCIM API
@@ -128,7 +116,6 @@ brochServer config@Config {..} (authenticatedUser, loginHandler) = do
         patch  "/Groups/:uid" undefined
         delete "/Groups/:uid" undefined
 --}
-  where
     -- TODO: Sort this mess out
     loadClient = liftIO . getClient
     createAuthz  cd s cl t scps mn mr = liftIO $ createAuthorization cd s cl t scps mn mr

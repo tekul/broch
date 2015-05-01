@@ -68,6 +68,7 @@ Library
                     , base64-bytestring >= 1
                     , persistent >= 2.1 && < 3
                     , persistent-template >= 2.1 && < 3
+                    , reroute >= 0.2.3
                     , stm >= 2.4
                     , transformers >= 0.3
                     , unordered-containers >= 0.2

@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 module Broch.Server.Internal
     ( Handler
-    , Router
     , routerToApp
     , postParams
     , queryParams
@@ -51,6 +50,8 @@ import Network.Wai
 import Network.Wai.Parse
 import Text.Blaze.Html (Html)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
+import Web.Routing.AbstractRouter (ParamMap)
+import Web.Routing.TextRouting
 
 import qualified Broch.Server.Session as S
 
@@ -65,8 +66,6 @@ data HandlerResult
 
 -- Request handler monad
 type Handler a = EitherT HandlerResult (ReaderT RequestData (StateT ResponseState IO)) a
-
-type Router = [Text] -> Handler ()
 
 type Params = M.Map Text [Text]
 
@@ -84,8 +83,8 @@ data ResponseState = ResponseState
     , resSession :: !(Maybe S.Session)
     }
 
-routerToApp :: S.LoadSession -> Text -> Router -> Application
-routerToApp loadSesh baseUrl route req respond = do
+routerToApp :: S.LoadSession -> Text -> RoutingTree (Handler ()) -> Application
+routerToApp loadSesh baseUrl router req respond = do
     pParams <- fst <$> parseRequestBody lbsBackEnd req
 
     response <- case httpMeth of
@@ -98,7 +97,7 @@ routerToApp loadSesh baseUrl route req respond = do
                       , pps     = toMap pParams
                       }
 
-            runHandler rd (route $ pathInfo req)
+            runHandler rd (matchRoute' (pathInfo req) router)
                 `catch` \(e :: SomeException) -> do
                     let errMsg = BLC.pack $ "Internal error: " ++ show e
                     BLC.putStrLn errMsg
@@ -108,8 +107,8 @@ routerToApp loadSesh baseUrl route req respond = do
     redirectFull url hdrs = traceShow url $ responseLBS status302 ((hLocation, url) : hdrs) ""
     httpMeth              = parseMethod $ requestMethod req
 
-    runHandler :: RequestData -> Handler () -> IO Response
-    runHandler rd h  = do
+    runHandler :: RequestData -> [(ParamMap, Handler ())] -> IO Response
+    runHandler rd [(_, h)]  = do
         (initSesh, saveSesh) <- loadSesh req
         let initRes = ResponseState status200 [] "" initSesh
         (result, res) <- runStateT (runReaderT (runEitherT h) rd) initRes
@@ -123,6 +122,7 @@ routerToApp loadSesh baseUrl route req respond = do
             Left (RedirectExternal url) -> redirectFull url hdrs
             Left (HandlerError msg) -> responseLBS internalServerError500 hdrs (BL.fromStrict msg)
             Right _ -> error "Not handled"
+    runHandler _  _     = return $ responseLBS notFound404 [] "Not Found"
 
 toMap :: [(ByteString, ByteString)] -> Params
 toMap = M.unionsWith (++) . map (\(x, y) -> M.singleton (TE.decodeUtf8 x) [TE.decodeUtf8 y])
