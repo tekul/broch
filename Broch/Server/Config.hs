@@ -3,6 +3,7 @@
 module Broch.Server.Config where
 
 import           Control.Applicative
+import           Control.Error
 import           Control.Monad.IO.Class
 import           Control.Concurrent.MVar
 import qualified Crypto.PubKey.RSA as RSA
@@ -52,8 +53,9 @@ defSupportedAlgorithms = SupportedAlgorithms
 -- | The configuration data needed to create a Broch server
 data Config m s = Config
     { issuerUrl                  :: Text
-    , publicKeys                 :: [Jwk]
-    , signingKeys                :: [Jwk]
+    , publicKeys                 :: m [Jwk]
+    , signingKeys                :: m [Jwk]
+    , decryptionKeys             :: m [Jwk]
     , responseTypesSupported     :: [ResponseType]
     , algorithmsSupported        :: SupportedAlgorithms
     , clientAuthMethodsSupported :: [ClientAuthMethod]
@@ -80,13 +82,21 @@ inMemoryConfig issuer = do
     clients        <- newMVar Map.empty
     authorizations <- newMVar Map.empty
     approvals      <- newMVar Map.empty
-    (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 64 65537
-    let decodeRefresh _ jwt = decodeJwtRefreshToken kPr (TE.encodeUtf8 jwt)
+    (sigPub, sigPr) <- generateKeyPair (Signed RS256)
+    (encPub, encPr) <- generateKeyPair (Encrypted RSA_OAEP)
+    pubKeys        <- newMVar [sigPub, encPub]
+    sigKeys        <- newMVar [sigPr]
+    decKeys        <- newMVar [encPr]
+    let accessTokenEncoding = AlgPrefs Nothing (E RSA_OAEP A128GCM)
+        decodeToken t = do
+            dKeys <- liftIO (readMVar decKeys)
+            liftIO $ withCPRG $ \g -> decodeJwtAccessToken g [] dKeys accessTokenEncoding t
 
     return Config
         { issuerUrl = issuer
-        , publicKeys  = [RsaPublicJwk kPub (Just "brochkey") Nothing Nothing]
-        , signingKeys = [RsaPrivateJwk kPr (Just "brochkey") (Just Sig) Nothing]
+        , publicKeys  = liftIO (readMVar pubKeys)
+        , signingKeys = liftIO (readMVar sigKeys)
+        , decryptionKeys = liftIO (readMVar decKeys)
         , responseTypesSupported = [Code]
         , algorithmsSupported = defSupportedAlgorithms
         , clientAuthMethodsSupported = [ClientSecretBasic, ClientSecretPost, ClientSecretJwt, PrivateKeyJwt]
@@ -102,14 +112,25 @@ inMemoryConfig issuer = do
         , authenticateResourceOwner = error "authenticateResourceOwner has not been set in Config"
         , createApproval = \a -> liftIO $ modifyMVar_ approvals $ \as -> return $ Map.insert (approverId a, approvedClient a) a as
         , getApproval = \sid c now -> liftIO $ modifyMVar approvals $ \as -> do
-             let k = (sid, clientId c)
-             case Map.lookup k as of
-                 Just a -> if approvalExpiry a < IntDate now
-                               then return (Map.delete k as, Nothing)
-                               else return (as, Just a)
-                 Nothing -> return (as, Nothing)
-        , createAccessToken = createJwtAccessToken $ RSA.private_pub kPr
-        , decodeAccessToken = decodeJwtAccessToken kPr
-        , decodeRefreshToken = decodeRefresh
+            let k = (sid, clientId c)
+            case Map.lookup k as of
+               Just a -> if approvalExpiry a < IntDate now
+                             then return (Map.delete k as, Nothing)
+                             else return (as, Just a)
+               Nothing -> return (as, Nothing)
+        , createAccessToken = \user client gt scp now -> do
+            encKeys <- liftIO (readMVar pubKeys)
+            tokens <- liftIO $ withCPRG $ \g -> createJwtAccessToken g [] encKeys accessTokenEncoding user client gt scp now
+            return $ fmapL (const "Failed to create JWT access token") tokens
+        , decodeAccessToken = decodeToken
+        , decodeRefreshToken = \_ token -> decodeToken (TE.encodeUtf8 token)
         , getUserInfo = error "getUserInfo has not been set"
         }
+  where
+    generateKeyPair alg = do
+        (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 128 65537
+        let use = Just $ case alg of
+                        Signed _    -> Sig
+                        Encrypted _ -> Enc
+        return (RsaPublicJwk kPub (Just "brochkey") use (Just alg),
+            RsaPrivateJwk kPr (Just "brochkey") use (Just alg))

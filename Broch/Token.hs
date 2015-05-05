@@ -1,11 +1,10 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
 
 module Broch.Token
-  ( createJwtToken
-  , createJwtAccessToken
-  , decodeJwtAccessToken
-  , decodeJwtRefreshToken
-  )
+    ( createJwtToken
+    , createJwtAccessToken
+    , decodeJwtAccessToken
+    )
 where
 
 import Prelude hiding (exp)
@@ -16,19 +15,14 @@ import Control.Monad.State.Strict
 import Crypto.Random (CPRG)
 import Data.Aeson
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy (toStrict, fromStrict)
+import Data.ByteString.Lazy (toStrict)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import GHC.Generics
 
-import qualified Crypto.PubKey.RSA as RSA
-
 import Broch.Model hiding (sub)
-import Broch.Random
-import Jose.Jwa
 import Jose.Jwk
 import qualified Jose.Jwt as Jwt
-import qualified Jose.Jwe as Jwe
 
 tokenTTL :: POSIXTime
 tokenTTL = 3600
@@ -57,20 +51,23 @@ createJwtToken rng sigKeys encKeys prefs claims = case prefs of
   where
     cBytes = toStrict (encode claims)
 
-createJwtAccessToken :: (MonadIO m)
-                     => RSA.PublicKey
-                     -> Maybe SubjectId
-                     -> Client
-                     -> GrantType
-                     -> [Scope]
-                     -> POSIXTime
-                     -> m (ByteString, Maybe ByteString, TokenTTL)
-createJwtAccessToken pubKey user client grantType scopes now = do
-      Jwt.Jwt token  <- liftIO $ toJwt claims
-      refreshToken   <- liftIO issueRefresh
+createJwtAccessToken :: (CPRG g)
+    => g
+    -> [Jwk]
+    -> [Jwk]
+    -> AlgPrefs
+    -> Maybe SubjectId
+    -> Client
+    -> GrantType
+    -> [Scope]
+    -> POSIXTime
+    -> (Either Jwt.JwtError (ByteString, Maybe ByteString, TokenTTL), g)
+createJwtAccessToken rng sigKeys encKeys prefs user client grantType scopes now = flip runState rng $ runEitherT $ do
+      Jwt.Jwt token  <- toJwt claims
+      refreshToken   <- issueRefresh
       return (token, refreshToken, tokenTTL)
     where
-      toJwt t = withCPRG $ \cprg -> Jwe.rsaEncode cprg RSA_OAEP A128GCM pubKey (toStrict $ encode t)
+      toJwt payload = hoistEither =<< state (\g -> createJwtToken g sigKeys encKeys prefs payload)
       issueRefresh
         | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just . Jwt.unJwt <$> toJwt refreshClaims
         | otherwise = return Nothing
@@ -92,39 +89,40 @@ createJwtAccessToken pubKey user client grantType scopes now = do
           , aud = ["refresh"]
           }
 
-decodeJwtRefreshToken :: MonadIO m
-                      => RSA.PrivateKey
-                      -> ByteString
-                      -> m (Maybe AccessGrant)
-decodeJwtRefreshToken = decodeJwtToken
+decodeJwtAccessToken :: CPRG g
+    => g
+    -> [Jwk]
+    -> [Jwk]
+    -> AlgPrefs
+    -> ByteString
+    -> (Maybe AccessGrant, g)
+decodeJwtAccessToken rng sigKeys decKeys (AlgPrefs s e) jwt = flip runState rng $ runMaybeT $ do
+    payload1 <- case e of
+        E alg enc -> do
+            content <- state $ \g -> Jwt.decode g decKeys (Just $ Jwt.JweEncoding alg enc) jwt
+            case content of
+                Right (Jwt.Jwe (_, bytes)) -> just bytes
+                _                          -> nothing
+        NotEncrypted -> just jwt
 
-decodeJwtAccessToken :: MonadIO m
-                     => RSA.PrivateKey
-                     -> ByteString
-                     -> m (Maybe AccessGrant)
-decodeJwtAccessToken = decodeJwtToken
+    claims <- case s of
+        Nothing  -> just payload1
+        Just alg -> do
+            content <- state $ \g -> Jwt.decode g sigKeys (Just $ Jwt.JwsEncoding alg) payload1
+            case content of
+                Right (Jwt.Jws (_, bytes)) -> just bytes
+                _                          -> nothing
 
-decodeJwtToken :: MonadIO m
-               => RSA.PrivateKey
-               -> ByteString
-               -> m (Maybe AccessGrant)
-decodeJwtToken privKey jwt = do
-    claims <- liftIO $ withCPRG $ \g -> Jwe.rsaDecode g privKey jwt
-    return $ case fmap decodeClaims claims of
-        Right (Just c)  -> Just $ claimsToAccessGrant c
-        _               -> Nothing
-  where
-    decodeClaims (_, t) = decode $ fromStrict t
-
+    fmap claimsToAccessGrant $ hoistMaybe $ decodeStrict claims
 
 claimsToAccessGrant :: Claims -> AccessGrant
 claimsToAccessGrant claims = AccessGrant
-                          { granterId = subj
-                          , granteeId = cid claims
-                          , accessGrantType = grt claims
-                          , grantScope = map scopeFromName $ scp claims
-                          , grantExpiry = exp claims
-                          }
+    { granterId = subj
+    , granteeId = cid claims
+    , accessGrantType = grt claims
+    , grantScope = map scopeFromName $ scp claims
+    , grantExpiry = exp claims
+    }
   where
     subj = if sub claims == cid claims
               then Nothing

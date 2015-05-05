@@ -72,6 +72,7 @@ data TokenError = InvalidRequest Text
                 | UnauthorizedClient Text
                 | UnsupportedGrantType
                 | InvalidScope Text
+                | InternalError Text
                   deriving (Show, Eq)
 
 instance ToJSON TokenError where
@@ -83,6 +84,7 @@ instance ToJSON TokenError where
             UnauthorizedClient m -> ("unauthorized_client", Just m)
             UnsupportedGrantType -> ("unsupported_grant_type", Nothing)
             InvalidScope m       -> ("invalid_scope", Just m)
+            InternalError m      -> ("server_error", Just m)
 
 processTokenRequest :: (Applicative m, Monad m)
                     => Map Text [Text]
@@ -136,18 +138,19 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
                 then left $ InvalidGrant "Refresh token was issued to a different client"
                 else return (mu, Nothing, gt', scp)
 
-        Implicit -> left $ InvalidGrant "Implicit grant is not supported by the token endpoint"
+        Implicit  -> left $ InvalidGrant "Implicit grant is not supported by the token endpoint"
+        JwtBearer -> left UnsupportedGrantType
 
+    (!token, !refToken, !tokenTTL) <- lift (createAccessToken uid client tokenGrantType grantedScope now) >>= hoistEither . fmapL InternalError
 
-    (!token, !refToken, !tokenTTL) <- lift $ createAccessToken uid client tokenGrantType grantedScope now
     return AccessTokenResponse
-              { accessToken  = token
-              , tokenType    = Bearer
-              , expiresIn    = tokenTTL
-              , idToken      = idt
-              , refreshToken = refToken
-              , tokenScope   = Nothing
-              }
+        { accessToken  = token
+        , tokenType    = Bearer
+        , expiresIn    = tokenTTL
+        , idToken      = idt
+        , refreshToken = refToken
+        , tokenScope   = Nothing
+        }
 
   where
     checkExpiry (IntDate t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"

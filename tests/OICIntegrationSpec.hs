@@ -67,7 +67,7 @@ openIdConfigSpec run =
             assertEqual "Returned issuer should match" (D.issuer cfg) "http://testapp"
             get $ TE.encodeUtf8 $ D.jwks_uri cfg
             ks <- jsonBody
-            assertEqual "There should be one JWK" 1 (length $ keys ks)
+            assertEqual "There should be two JWKs" 2 (length $ keys ks)
 
 
 userInfoRequest t = bearerAuth t >> get "/connect/userinfo"

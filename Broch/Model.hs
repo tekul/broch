@@ -136,7 +136,6 @@ type CreateApproval m
      = Approval
     -> m ()
 
-
 type CreateAccessToken m
     -- | The end user (resource owner)
      = Maybe SubjectId
@@ -148,7 +147,7 @@ type CreateAccessToken m
     -> [Scope]
     -- | Current time
     -> POSIXTime
-    -> m (ByteString, Maybe ByteString, TokenTTL)
+    -> m (Either Text (ByteString, Maybe ByteString, TokenTTL))
 
 type CreateIdToken m
     -- | The authenticated user

@@ -150,12 +150,13 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     codeParam code = return ("code", code)
 
     doAccessToken client scope = do
-        (t, _, ttl) <- lift $ createAccessToken (Just $ subjectId user) client Implicit scope now
-        let expires = B.pack $ show (round ttl :: Int)
-        return (t, expires)
+        token <- lift $ createAccessToken (Just $ subjectId user) client Implicit scope now
+        case token of
+             Right (t, _, ttl) -> return (t, ttl)
+             Left _            -> left ServerError
 
     tokenParams (token, expires) =
-        return [("access_token", token), ("token_type", "bearer"), ("expires_in", expires)]
+        return [("access_token", token), ("token_type", "bearer"), ("expires_in", B.pack $ show (round expires :: Int))]
 
     doIdToken client nonce code accessToken = do
         idt  <- lift $ createIdToken (subjectId user) (authTime user) client nonce now code accessToken

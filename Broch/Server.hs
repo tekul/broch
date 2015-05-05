@@ -87,7 +87,7 @@ brochServer config@Config {..} authenticatedUser =
         , ("/connect/userinfo", userInfoHandler)
         , ("/connect/register", registrationHandler)
         , (".well-known/openid-configuration", json oidConfig)
-        , (".well-known/jwks",  json $ JwkSet publicKeys)
+        , (".well-known/jwks",  liftIO publicKeys >>= json . JwkSet )
         ]
   where
 {--
@@ -128,9 +128,10 @@ brochServer config@Config {..} authenticatedUser =
         let claims  = idTokenClaims issuerUrl client nons uid aTime now code aToken
             rpKeys  = fromMaybe [] (clientKeys client)
             csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
-            sigKeys = maybe signingKeys (: signingKeys) csKey
             prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
-        liftIO $ withCPRG $ \g -> createJwtToken g sigKeys rpKeys prefs claims
+
+        sigKeys <- liftIO signingKeys
+        liftIO $ withCPRG $ \g -> createJwtToken g (maybe sigKeys (: sigKeys) csKey) rpKeys prefs claims
 
     registerClient c = do
         cid <- generateCode
@@ -197,7 +198,8 @@ brochServer config@Config {..} authenticatedUser =
             Nothing -> json claims
             Just (AlgPrefs Nothing NotEncrypted) -> json claims
             Just a  -> do
-                jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng signingKeys (fromMaybe [] (clientKeys client)) a claims
+                sigKeys <- liftIO signingKeys
+                jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng sigKeys (fromMaybe [] (clientKeys client)) a claims
                 case jwtRes of
                     Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
                     Left  e         -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
@@ -272,8 +274,9 @@ brochServer config@Config {..} authenticatedUser =
             Right client -> do
                 resp <- processTokenRequest env client now (liftIO . getAuthorization) authenticateRO createAccess createIdToken decodeRefresh
                 case resp of
-                    Right tokenResponse -> json $ toJSON tokenResponse
-                    Left  bad           -> status badRequest400 >> json (toJSON bad)
+                    Right tokenResponse     -> json $ toJSON tokenResponse
+                    Left  (InternalError _) -> status internalServerError500 >> text "Internal error"
+                    Left  bad               -> status badRequest400 >> json (toJSON bad)
 
 debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print

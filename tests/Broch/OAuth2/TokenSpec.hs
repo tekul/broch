@@ -226,7 +226,7 @@ refreshTokenGrantSpec =
 createEnv :: GrantType -> Map Text [Text]
 createEnv gt = Map.fromList [("grant_type", [grantTypeName gt])]
 
-createAccessToken mUser client _ s _ = return (token, Just "refreshtoken", 987)
+createAccessToken mUser client _ s _ = return $ Right (token, Just "refreshtoken", 987)
   where
     u = fromMaybe "" mUser
     token = TE.encodeUtf8 $ T.intercalate ":" ([u, clientId client] ++ map scopeName s)
