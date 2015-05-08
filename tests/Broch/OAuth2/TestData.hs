@@ -57,6 +57,10 @@ Success (JwkSet testPublicJwks) = fromJSON (Object publicKeySet)
 testPrivateJwks :: [Jwk]
 Success (JwkSet testPrivateJwks) = fromJSON (Object privateKeySet)
 
+clientPublicJwks :: [Jwk]
+clientPublicJwks = let RsaPublicJwk k _ _ _ = testPublicJwks !! 1
+                   in  [RsaPublicJwk k (Just "c1") (Just Enc) Nothing]
+
 -- Authorization from user "cat" to app
 catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app") (now - 60)
 
@@ -84,4 +88,3 @@ getClient "appq"  = return $ Just appClient { redirectURIs = ["http://app?x=1&y=
 getClient "admin" = return $ Just adminClient
 getClient "js"    = return $ Just jsClient
 getClient _       = return Nothing
-

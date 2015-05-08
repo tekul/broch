@@ -76,7 +76,7 @@ Library
                     , monad-logger >= 0.3
                     , wai >= 3.0.0.2
                     , wai-extra >= 3
-                    , warp
+                    , warp >= 3.0
   Ghc-Options:        -Wall
 
 Test-suite tests
@@ -123,6 +123,7 @@ Test-suite tests
                     , unordered-containers
                     , wai
                     , wai-extra >= 3.0.0.1
+                    , warp
 
   Ghc-options:        -Wall -rtsopts -fno-warn-missing-signatures
   Hs-source-dirs:     tests

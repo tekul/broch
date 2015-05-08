@@ -4,7 +4,7 @@
 module OICIntegrationSpec where
 
 import Data.Aeson (fromJSON)
-import Data.Aeson.Types (Object, Result(..))
+import Data.Aeson.Types (Result(..))
 import Data.Aeson.QQ
 import qualified Data.Text.Encoding as TE
 import Jose.Jwk
@@ -24,7 +24,9 @@ spec :: Spec
 spec = do
     app <- runIO testapp
     let run = runTest app
-    openIdConfigSpec run >> openIdFlowsSpec run >> clientRegistrationSpec run
+    openIdConfigSpec run
+    openIdFlowsSpec run
+    clientRegistrationSpec run
 
 clientReg :: ClientMetaData
 Success clientReg = fromJSON $ [aesonQQ|
@@ -42,8 +44,8 @@ Success clientReg = fromJSON $ [aesonQQ|
         }
     |]
 
-registerClient md = do
-    postJSON "/connect/register" md { jwks_uri = Just "https://op.certification.openid.net:60129/export/jwk_60129.json" }
+registerClient md =
+    postJSON "/connect/register" md { jwks_uri = Just "http://127.0.0.1:60129/" }
 
 
 clientRegistrationSpec run =
