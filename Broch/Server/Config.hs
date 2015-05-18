@@ -1,18 +1,23 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 
 module Broch.Server.Config where
 
 import           Control.Applicative
-import           Control.Error
-import           Control.Monad.IO.Class
 import           Control.Concurrent.MVar
-import qualified Crypto.PubKey.RSA as RSA
+import           Control.Error
+import           Control.Monad (when)
+import           Control.Monad.IO.Class
+import qualified Data.Aeson as A
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as Map
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as TE
+import           Data.Time.Clock
 import           Jose.Jwa
 import           Jose.Jwk
 import           Jose.Jwt
+import           System.Directory (doesFileExist)
 
 import Broch.Model
 import Broch.Random
@@ -53,9 +58,7 @@ defSupportedAlgorithms = SupportedAlgorithms
 -- | The configuration data needed to create a Broch server
 data Config m s = Config
     { issuerUrl                  :: Text
-    , publicKeys                 :: m [Jwk]
-    , signingKeys                :: m [Jwk]
-    , decryptionKeys             :: m [Jwk]
+    , keyRing                    :: KeyRing m
     , responseTypesSupported     :: [ResponseType]
     , algorithmsSupported        :: SupportedAlgorithms
     , clientAuthMethodsSupported :: [ClientAuthMethod]
@@ -73,30 +76,121 @@ data Config m s = Config
     , getUserInfo                :: LoadUserInfo m
     }
 
+data KeyRing m = KeyRing
+    { publicKeys       :: m [Jwk]
+    -- ^ Keys which should be returned form the jwks_uri endpoint
+    -- (as per 10.1.1 and 10.2.1 of OIC spec). Public signature keys include those
+    -- which are expired but may still be used to verify an OP signature. Public
+    -- encryption keys only include the current key or keys.
+    , signingKeys      :: m [Jwk]
+    -- ^ Private keys which the OP uses for signing. Should only include
+    -- unexpired keys.
+    , decryptionKeys   :: m [Jwk]
+    -- ^ Private keys for decryption. Should included both expired
+    -- and unexpired keys.
+    , rotateKeys       :: Bool -> m ()
+    -- ^ Performs a key rotation, creating a new set of keys.
+    -- If the boolean parameter is true, the existing keys will be overwritten,
+    -- otherwise they will be treated as expired.
+    }
+
+data KeyRingParams = KeyRingParams
+    { keyRingFile      :: FilePath
+    , rsaKeySizeBytes  :: Int
+    , keyTTLdays       :: Int
+    , gracePeriod      :: Int
+    } deriving (Show)
+
+
+defaultKeyRing :: IO (KeyRing IO)
+defaultKeyRing = getKeyRing defaultKeyRingParams
+
+defaultKeyRingParams :: KeyRingParams
+defaultKeyRingParams = KeyRingParams "jwks.json" 128 5 5
+
+getKeyRing :: KeyRingParams -> IO (KeyRing IO)
+getKeyRing KeyRingParams {..} = do
+    now     <- getCurrentTime
+    allJwks <- readOrGenerateKeys
+
+    let validJwks = filter (not . isOutOfGrace now) allJwks
+        activeKeys = filter (isActive now) validJwks
+
+    serverKeys <- newMVar validJwks
+
+    let filterKeys f = filter f <$> readMVar serverKeys
+
+        rotate overwrite = modifyMVar_ serverKeys $ \ks -> do
+            rotateTime <- getCurrentTime
+            let ks' = filter (not . isOutOfGrace rotateTime) ks
+            newKeys <- generateKeys
+            let allKeys = if overwrite then newKeys else newKeys ++ ks'
+            saveKeys allKeys
+            return allKeys
+
+    -- Default keyring has two active key pairs for signing and encryption
+    when (length activeKeys < 4) $ rotate False
+
+    return KeyRing
+        { publicKeys = do
+            ks <- readMVar serverKeys
+            t  <- getCurrentTime
+            return $ filter (\k -> isPublic k && (jwkUse k /= Just Enc || isActive t k)) ks
+        , signingKeys = take 1 <$> filterKeys isSigningKey
+        , decryptionKeys = filterKeys isDecryptionKey
+        , rotateKeys = rotate
+        }
+  where
+    secondsPerDay = 24 * 60 * 60
+
+    isActive now = not . isOlderThan keyTTLdays now
+    isSigningKey k = isPrivate k && jwkUse k == Just Sig
+    isDecryptionKey k = isPrivate k && jwkUse k == Just Enc
+    isOutOfGrace = isOlderThan (keyTTLdays + gracePeriod)
+
+    isOlderThan nDays now k = case jwkId k of
+        Just (UTCKeyId t) -> addUTCTime (fromIntegral $ nDays * secondsPerDay) t < now
+        _                 -> False
+
+    readOrGenerateKeys :: IO [Jwk]
+    readOrGenerateKeys = do
+        exists <- doesFileExist keyRingFile
+        jwks   <- if exists
+                      then A.decodeStrict <$> B.readFile keyRingFile
+                      else return Nothing
+        case jwks of
+            Just (JwkSet ks) -> return ks
+            Nothing          -> do
+                ks <- generateKeys
+                saveKeys ks
+                return ks
+
+    saveKeys ks = BL.writeFile keyRingFile (A.encode (JwkSet ks))
+
+    generateKeys = do
+        now         <- getCurrentTime
+        (sigPub, sigPr) <- withCPRG $ \g -> generateRsaKeyPair g rsaKeySizeBytes (UTCKeyId now) Sig Nothing
+        (encPub, encPr) <- withCPRG $ \g -> generateRsaKeyPair g rsaKeySizeBytes (UTCKeyId (addUTCTime 1 now)) Enc Nothing
+        return [sigPub, sigPr, encPub, encPr]
+
 -- | Creates a configuration using in-memory storage for simple testing.
 inMemoryConfig :: (MonadIO m, Subject s)
     -- | The issuer (the external URL used to access your server)
     => Text
+    -> KeyRing m
     -> IO (Config m s)
-inMemoryConfig issuer = do
+inMemoryConfig issuer kr = do
     clients        <- newMVar Map.empty
     authorizations <- newMVar Map.empty
     approvals      <- newMVar Map.empty
-    (sigPub, sigPr) <- generateKeyPair (Signed RS256)
-    (encPub, encPr) <- generateKeyPair (Encrypted RSA_OAEP)
-    pubKeys        <- newMVar [sigPub, encPub]
-    sigKeys        <- newMVar [sigPr]
-    decKeys        <- newMVar [encPr]
     let accessTokenEncoding = AlgPrefs Nothing (E RSA_OAEP A128GCM)
         decodeToken t = do
-            dKeys <- liftIO (readMVar decKeys)
+            dKeys <- decryptionKeys kr
             liftIO $ withCPRG $ \g -> decodeJwtAccessToken g [] dKeys accessTokenEncoding t
 
     return Config
-        { issuerUrl = issuer
-        , publicKeys  = liftIO (readMVar pubKeys)
-        , signingKeys = liftIO (readMVar sigKeys)
-        , decryptionKeys = liftIO (readMVar decKeys)
+        { issuerUrl  = issuer
+        , keyRing = kr
         , responseTypesSupported = [Code]
         , algorithmsSupported = defSupportedAlgorithms
         , clientAuthMethodsSupported = [ClientSecretBasic, ClientSecretPost, ClientSecretJwt, PrivateKeyJwt]
@@ -119,18 +213,10 @@ inMemoryConfig issuer = do
                              else return (as, Just a)
                Nothing -> return (as, Nothing)
         , createAccessToken = \user client gt scp now -> do
-            encKeys <- liftIO (readMVar pubKeys)
+            encKeys <- publicKeys kr
             tokens <- liftIO $ withCPRG $ \g -> createJwtAccessToken g [] encKeys accessTokenEncoding user client gt scp now
             return $ fmapL (const "Failed to create JWT access token") tokens
         , decodeAccessToken = decodeToken
         , decodeRefreshToken = \_ token -> decodeToken (TE.encodeUtf8 token)
         , getUserInfo = error "getUserInfo has not been set"
         }
-  where
-    generateKeyPair alg = do
-        (kPub, kPr) <- withCPRG $ \g -> RSA.generate g 128 65537
-        let use = Just $ case alg of
-                        Signed _    -> Sig
-                        Encrypted _ -> Enc
-        return (RsaPublicJwk kPub (Just "brochkey") use (Just alg),
-            RsaPrivateJwk kPr (Just "brochkey") use (Just alg))

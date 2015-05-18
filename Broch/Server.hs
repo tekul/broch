@@ -87,7 +87,7 @@ brochServer config@Config {..} authenticatedUser =
         , ("/connect/userinfo", userInfoHandler)
         , ("/connect/register", registrationHandler)
         , (".well-known/openid-configuration", json oidConfig)
-        , (".well-known/jwks",  liftIO publicKeys >>= json . JwkSet )
+        , (".well-known/jwks",  liftIO (publicKeys keyRing) >>= json . JwkSet )
         ]
   where
 {--
@@ -130,7 +130,7 @@ brochServer config@Config {..} authenticatedUser =
             csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
             prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
 
-        sigKeys <- liftIO signingKeys
+        sigKeys <- liftIO (signingKeys keyRing)
         liftIO $ withCPRG $ \g -> createJwtToken g (maybe sigKeys (: sigKeys) csKey) rpKeys prefs claims
 
     registerClient c = do
@@ -198,7 +198,7 @@ brochServer config@Config {..} authenticatedUser =
             Nothing -> json claims
             Just (AlgPrefs Nothing NotEncrypted) -> json claims
             Just a  -> do
-                sigKeys <- liftIO signingKeys
+                sigKeys <- liftIO (signingKeys keyRing)
                 jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng sigKeys (fromMaybe [] (clientKeys client)) a claims
                 case jwtRes of
                     Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)

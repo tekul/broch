@@ -53,16 +53,17 @@ Library
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
-                    , jose-jwt      >= 0.5
+                    , jose-jwt      >= 0.6
                     , cryptohash >= 0.11
                     , crypto-pubkey >= 0.2
                     , cipher-aes >= 0.2
                     , cprng-aes >= 0.5.2
                     , crypto-random >= 0.0.7
                     , data-default-generics >= 0.3
+                    , directory
                     , http-conduit >= 2.1
                     , http-types >= 0.8
-                    , aeson >= 0.7.0.6
+                    , aeson >= 0.8.1.0
                     , text  >= 0.11
                     , base16-bytestring
                     , base64-bytestring >= 1

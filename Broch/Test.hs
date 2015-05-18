@@ -48,7 +48,9 @@ testBroch issuer pool = do
     _ <- runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
     mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
     mapM_ createUser testUsers
-    config <- persistBackend pool <$> inMemoryConfig issuer
+    kr <- defaultKeyRing
+    rotateKeys kr True
+    config <- persistBackend pool <$> inMemoryConfig issuer kr
     let extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")
             , ("/login",  passwordLoginHandler (authenticateResourceOwner config))

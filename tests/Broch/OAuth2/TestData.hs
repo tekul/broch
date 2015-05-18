@@ -8,7 +8,7 @@ import Data.Aeson.QQ
 import Crypto.Random (CPRG(..))
 import qualified Data.ByteString as B
 import Data.Time.Clock.POSIX
-import Jose.Jwt (IntDate(..))
+import Jose.Jwt (KeyId(..), IntDate(..))
 import Jose.Jwk
 
 import Broch.Model
@@ -59,7 +59,7 @@ Success (JwkSet testPrivateJwks) = fromJSON (Object privateKeySet)
 
 clientPublicJwks :: [Jwk]
 clientPublicJwks = let RsaPublicJwk k _ _ _ = testPublicJwks !! 1
-                   in  [RsaPublicJwk k (Just "c1") (Just Enc) Nothing]
+                   in  [RsaPublicJwk k (Just (KeyId "c1")) (Just Enc) Nothing]
 
 -- Authorization from user "cat" to app
 catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app") (now - 60)
