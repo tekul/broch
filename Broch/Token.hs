@@ -63,31 +63,31 @@ createJwtAccessToken :: (CPRG g)
     -> POSIXTime
     -> (Either Jwt.JwtError (ByteString, Maybe ByteString, TokenTTL), g)
 createJwtAccessToken rng sigKeys encKeys prefs user client grantType scopes now = flip runState rng $ runEitherT $ do
-      Jwt.Jwt token  <- toJwt claims
-      refreshToken   <- issueRefresh
-      return (token, refreshToken, tokenTTL)
-    where
-      toJwt payload = hoistEither =<< state (\g -> createJwtToken g sigKeys encKeys prefs payload)
-      issueRefresh
-        | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just . Jwt.unJwt <$> toJwt refreshClaims
-        | otherwise = return Nothing
-      subject = fromMaybe (clientId client) user
-      claims = Claims
-          { iss = "Broch"
-          , sub = subject
-          , grt = grantType
-          , cid = clientId client
-          , aud = ["nobody"]
-          , exp = Jwt.IntDate $ now + tokenTTL
-          , nbf = Nothing
-          , iat = Jwt.IntDate now
-          , jti = Nothing
-          , scp = map scopeName scopes
-          }
-      refreshClaims = claims
-          { exp = Jwt.IntDate $ now + refreshTokenTTL
-          , aud = ["refresh"]
-          }
+    Jwt.Jwt token  <- toJwt claims
+    refreshToken   <- issueRefresh
+    return (token, refreshToken, tokenTTL)
+  where
+    toJwt payload = hoistEither =<< state (\g -> createJwtToken g sigKeys encKeys prefs payload)
+    issueRefresh
+      | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just . Jwt.unJwt <$> toJwt refreshClaims
+      | otherwise = return Nothing
+    subject = fromMaybe (clientId client) user
+    claims = Claims
+        { iss = "Broch"
+        , sub = subject
+        , grt = grantType
+        , cid = clientId client
+        , aud = ["nobody"]
+        , exp = Jwt.IntDate $ now + tokenTTL
+        , nbf = Nothing
+        , iat = Jwt.IntDate now
+        , jti = Nothing
+        , scp = map scopeName scopes
+        }
+    refreshClaims = claims
+        { exp = Jwt.IntDate $ now + refreshTokenTTL
+        , aud = ["refresh"]
+        }
 
 decodeJwtAccessToken :: CPRG g
     => g
