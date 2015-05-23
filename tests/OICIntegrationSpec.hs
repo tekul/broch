@@ -76,6 +76,7 @@ userInfoRequest t = bearerAuth t >> get "/connect/userinfo"
 
 redirectUri = head $ redirect_uris clientReg
 
+openIdFlowsSpec :: (WaiTest () -> IO ()) -> Spec
 openIdFlowsSpec run =
     describe "OpenID authentication flows" $ do
         let auth = authzRequest "app" redirectUri [OpenID]
