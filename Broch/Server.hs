@@ -29,6 +29,7 @@ import           Jose.Jwt (Jwt(..), IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import           Network.HTTP.Conduit (simpleHttp)
+import           Text.Blaze.Html (Html)
 import           Web.Routing.TextRouting
 
 import           Broch.Model hiding (Email)
@@ -40,7 +41,7 @@ import           Broch.OpenID.IdToken
 import           Broch.OpenID.Registration
 import           Broch.OpenID.UserInfo
 import           Broch.Random
-import           Broch.Server.BlazeUI
+import qualified Broch.Server.BlazeUI as UI
 import           Broch.Server.Config
 import           Broch.Server.Internal
 import           Broch.Token
@@ -54,8 +55,14 @@ instance Subject Usr where
 userIdKey :: ByteString
 userIdKey = "_uid"
 
-passwordLoginHandler :: AuthenticateResourceOwner IO -> Handler ()
-passwordLoginHandler authenticate = httpMethod >>= \m -> case m of
+defaultLoginPage :: Html
+defaultLoginPage = UI.loginPage
+
+defaultApprovalPage :: Client -> [Scope] -> Int64 -> Html
+defaultApprovalPage = UI.approvalPage
+
+passwordLoginHandler :: Html -> AuthenticateResourceOwner IO -> Handler ()
+passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
     GET  -> html loginPage
     POST -> do
         uid  <- postParam "username"
@@ -77,9 +84,12 @@ authenticatedSubject = do
         Just u  -> return (read $ T.unpack $ TE.decodeUtf8 u :: Usr)
         Nothing -> cacheLocation >> redirect "/login"
 
-
-brochServer :: (Subject s) => Config IO s -> Handler s -> RoutingTree (Handler ())
-brochServer config@Config {..} authenticatedUser =
+brochServer :: (Subject s)
+    => Config IO s
+    -> (Client -> [Scope] -> Int64 -> Html)
+    -> Handler s
+    -> RoutingTree (Handler ())
+brochServer config@Config {..} approvalPage authenticatedUser =
     foldl (\tree (r, h) -> addToRoutingTree r h tree) emptyRoutingTree
         [ ("/oauth/authorize",  authorizationHandler)
         , ("/oauth/token",      tokenHandler)
@@ -209,7 +219,7 @@ brochServer config@Config {..} authenticatedUser =
             _      <- authenticatedUser
             now    <- liftIO getPOSIXTime
             Just client <- queryParam "client_id" >>= loadClient
-            scope  <- liftM (T.splitOn " ") $ queryParam "scope"
+            scope  <- liftM (map scopeFromName . T.splitOn " ") (queryParam "scope")
             html $ approvalPage client scope (round now)
 
         POST -> do

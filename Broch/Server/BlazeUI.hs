@@ -4,13 +4,12 @@ module Broch.Server.BlazeUI where
 
 import           Control.Monad (forM_)
 import           Data.Int (Int64)
-import           Data.Text (Text)
 import           Data.Time.Clock.POSIX
 
 import           Text.Blaze.Html5 as H
 import           Text.Blaze.Html5.Attributes hiding (scope, id)
 
-import Broch.Model (Client (..))
+import Broch.Model (Scope, scopeName, Client (..))
 
 loginPage :: Html
 loginPage = html $ do
@@ -22,7 +21,7 @@ loginPage = html $ do
             input ! type_ "password" ! name "password"
             input ! type_ "submit" ! value "Login"
 
-approvalPage :: Client -> [Text] -> Int64 -> Html
+approvalPage :: Client -> [Scope] -> Int64 -> Html
 approvalPage client scopes now = docTypeHtml $ html $ do
     H.head $
         H.title "Approvals"
@@ -36,8 +35,8 @@ approvalPage client scopes now = docTypeHtml $ html $ do
                 option ! value (toValue oneWeek) $ "One week"
                 option ! value (toValue oneMonth) $ "30 days"
             forM_ scopes $ \s -> do
-                input ! type_ "checkBox" ! name "scope" ! value (toValue s) ! checked ""
-                toHtml s
+                input ! type_ "checkBox" ! name "scope" ! value (toValue (scopeName s)) ! checked ""
+                toHtml (scopeName s)
                 br
 
             input ! type_ "submit" ! value "Approve"

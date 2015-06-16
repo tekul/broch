@@ -21,7 +21,7 @@ import           Broch.Persist (persistBackend)
 import qualified Broch.Persist.Internal as BP
 import           Broch.Random (randomBytes)
 import           Broch.Scim
-import           Broch.Server (brochServer, authenticatedSubject, passwordLoginHandler)
+import           Broch.Server (brochServer, defaultLoginPage,  defaultApprovalPage, authenticatedSubject, passwordLoginHandler)
 import           Broch.Server.Internal
 import           Broch.Server.Config
 
@@ -53,10 +53,10 @@ testBroch issuer pool = do
     config <- persistBackend pool <$> inMemoryConfig issuer kr
     let extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")
-            , ("/login",  passwordLoginHandler (authenticateResourceOwner config))
+            , ("/login",  passwordLoginHandler defaultLoginPage (authenticateResourceOwner config))
             , ("/logout", invalidateSession >> complete)
             ]
-        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer config authenticatedSubject) extraRoutes
+        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer config defaultApprovalPage authenticatedSubject) extraRoutes
     return routingTable
   where
     createUser scimData = do

@@ -34,12 +34,12 @@ Library
                     , Broch.Persist
                     , Broch.Persist.Internal
                     , Broch.Server
-                    , Broch.Server.BlazeUI
                     , Broch.Server.Config
                     , Broch.Server.Internal
                     , Broch.Server.Session
                     , Broch.Test
   Other-Modules:      Broch.Scim
+                    , Broch.Server.BlazeUI
   Build-Depends:      base >= 4 && < 5
                     , time
                     , errors >= 1.4 && < 2
