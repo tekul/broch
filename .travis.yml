@@ -1,5 +1,9 @@
 # See https://github.com/hvr/multi-ghc-travis
 
+branches:
+ only:
+  - master
+
 env:
  - GHCVER=7.8.3
 
