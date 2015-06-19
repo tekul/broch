@@ -1,5 +1,9 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric, RecordWildCards #-}
-module Broch.OpenID.Discovery where
+module Broch.OpenID.Discovery
+    ( OpenIDConfiguration (..)
+    , mkOpenIDConfiguration
+    )
+where
 
 import           Data.Aeson
 import           Data.Text (Text)
