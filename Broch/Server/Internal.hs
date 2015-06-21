@@ -2,6 +2,7 @@
 module Broch.Server.Internal
     ( Handler
     , routerToApp
+    , routerToMiddleware
     , postParams
     , queryParams
     , postParam
@@ -51,7 +52,6 @@ import Network.Wai
 import Network.Wai.Parse
 import Text.Blaze.Html (Html)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
-import Web.Routing.AbstractRouter (ParamMap)
 import Web.Routing.TextRouting
 
 import qualified Broch.Server.Session as S
@@ -62,7 +62,6 @@ data HandlerResult
     | ResponseComplete
     | HandlerError ByteString
       deriving (Show, Eq)
-
 
 
 -- Request handler monad
@@ -89,31 +88,38 @@ data ResponseState = ResponseState
     }
 
 routerToApp :: S.LoadSession -> Text -> RoutingTree (Handler ()) -> Application
-routerToApp loadSesh baseUrl router req respond = do
-    pParams <- fst <$> parseRequestBody lbsBackEnd req
+routerToApp loadSesh baseUrl router req respond =
+    let nf404 _ respond' = respond' (responseLBS notFound404 [] "Not Found")
+    in  routerToMiddleware loadSesh baseUrl router nf404 req respond
 
-    response <- case httpMeth of
-        Left badM -> return $ responseLBS methodNotAllowed405 [] $ BL.fromStrict $ B.concat["Unknown or unsupported HTTP method: ", badM]
-        Right m   -> do
-            let rd = RequestData
-                      { waiReq  = req
-                      , method  = m
-                      , qps     = toMap $ second (fromMaybe "") <$> queryString req
-                      , pps     = toMap pParams
-                      }
+routerToMiddleware :: S.LoadSession -> Text -> RoutingTree (Handler ()) -> Middleware
+routerToMiddleware loadSesh baseUrl router app req respond = case matchRoute' (pathInfo req) router of
+    [(_, h)] -> do
+        pParams <- fst <$> parseRequestBody lbsBackEnd req
+        response <- case httpMeth of
+            Left badM -> return $ responseLBS methodNotAllowed405 [] $ BL.fromStrict $ B.concat["Unknown or unsupported HTTP method: ", badM]
+            Right m   -> do
+                let rd = RequestData
+                        { waiReq  = req
+                        , method  = m
+                        , qps     = toMap $ second (fromMaybe "") <$> queryString req
+                        , pps     = toMap pParams
+                        }
 
-            execHandler rd (matchRoute' (pathInfo req) router)
-                `catch` \(e :: SomeException) -> do
-                    let errMsg = BLC.pack $ "Internal error: " ++ show e
-                    BLC.putStrLn errMsg
-                    return $ responseLBS internalServerError500 [] errMsg
-    respond response
+                execHandler rd h
+                    `catch` \(e :: SomeException) -> do
+                        let errMsg = BLC.pack $ "Internal error: " ++ show e
+                        BLC.putStrLn errMsg
+                        return $ responseLBS internalServerError500 [] errMsg
+        respond response
+    _        -> app req $ \res -> respond res
+
   where
     redirectFull url hdrs = traceShow url $ responseLBS status302 ((hLocation, url) : hdrs) ""
     httpMeth              = parseMethod $ requestMethod req
 
-    execHandler :: RequestData -> [(ParamMap, Handler ())] -> IO Response
-    execHandler rd [(_, h)]  = do
+    execHandler :: RequestData -> Handler () -> IO Response
+    execHandler rd h = do
         (initSesh, saveSesh) <- loadSesh req
         let initRes = ResponseState status200 [] "" initSesh
         (result, res) <- runStateT (runReaderT (runEitherT (runHandler h)) rd) initRes
@@ -127,7 +133,6 @@ routerToApp loadSesh baseUrl router req respond = do
             Left (RedirectExternal url) -> redirectFull url hdrs
             Left (HandlerError msg) -> responseLBS internalServerError500 hdrs (BL.fromStrict msg)
             Right _ -> error "Not handled"
-    execHandler _  _     = return $ responseLBS notFound404 [] "Not Found"
 
 toMap :: [(ByteString, ByteString)] -> Params
 toMap = M.unionsWith (++) . map (\(x, y) -> M.singleton (TE.decodeUtf8 x) [TE.decodeUtf8 y])
