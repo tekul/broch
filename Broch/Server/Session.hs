@@ -3,6 +3,7 @@ module Broch.Server.Session
     ( Session
     , LoadSession
     , SaveSession
+    , defaultKey
     , defaultLoadSession
     , empty
     , lookup
@@ -15,17 +16,26 @@ import Debug.Trace
 
 import Prelude hiding (lookup)
 import Blaze.ByteString.Builder (toByteString)
+import Control.Applicative ((<$>))
 import Control.Error
+import Control.Monad.Trans (lift)
+import Crypto.Random (getRandomBytes)
+import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import qualified Data.Serialize as S
 import Data.Time.Clock.POSIX
 import GHC.Generics (Generic)
+import qualified Jose.Jwt as Jwt
+import Jose.Jwa
+import Jose.Jwk
 import Network.HTTP.Types (Header, hCookie)
 import Network.Wai (Request, requestHeaders)
-import qualified Web.ClientSession as CS
+import System.Directory (doesFileExist)
 import Web.Cookie as Cookie
 
 data SessionCookie = SessionCookie Int64 Session deriving (Generic, Show)
@@ -48,26 +58,60 @@ lookup (Session m) k = M.lookup k m
 delete :: Session -> ByteString -> Session
 delete (Session m) k = Session $ M.delete k m
 
-defaultLoadSession :: Int64 -> CS.Key -> LoadSession
+cookieEncoding :: Jwt.JwtEncoding
+cookieEncoding = Jwt.JweEncoding A128KW A128GCM
+
+defaultKeyFile :: FilePath
+defaultKeyFile = "session_key.json"
+
+-- TODO: Integrate session keys with KeyRing
+defaultKey :: IO Jwk
+defaultKey = getKey defaultKeyFile
+
+getKey :: FilePath -> IO Jwk
+getKey file = do
+    exists <- doesFileExist file
+    jwks   <- if exists
+                  then A.decodeStrict <$> B.readFile file
+                  else return Nothing
+    case jwks of
+        Just (JwkSet (k:_)) -> return k
+        Nothing             -> do
+            k  <- getRandomBytes 16
+            let jwk = SymmetricJwk k Nothing Nothing (Just (Encrypted A128KW))
+            BL.writeFile file (A.encode (JwkSet [jwk]))
+            return jwk
+
+defaultLoadSession :: Int64 -> Jwk -> LoadSession
 defaultLoadSession timeout key req = do
     now <- fmap round getPOSIXTime
-    let (session, expired) = case trace (show sessionCookie) sessionCookie of
+    sessionCookie <- decodeCookie
+    traceM $ show sessionCookie
+    let (session, expired) = case sessionCookie of
                                 Just (SessionCookie x s) -> if x < now
                                                                 then (Nothing, True)
                                                                 else (Just s, False)
                                 Nothing -> (Nothing, False)
     return (session, saveSesh now expired)
   where
-    seshId  = "bsid"
-    sessionCookie = hush . S.decode =<< CS.decrypt key =<< L.lookup seshId cookies
+    decodeCookie = runMaybeT $ do
+        cookies <- hoistMaybe $ L.lookup hCookie $ requestHeaders req
+        encryptedCookie <- hoistMaybe $ L.lookup seshId (parseCookies cookies)
+        cookie <- lift (Jwt.decode [key] (Just cookieEncoding) encryptedCookie)
+        case cookie of
+            Right (Jwt.Jwe (_, content)) -> hoistMaybe . hush . S.decode $ content
+            _ -> nothing
 
-    cookies = maybe [] parseCookies $ L.lookup hCookie $ requestHeaders req
+    seshId  = "bsid"
 
     saveSesh _ False Nothing = return Nothing
     saveSesh _ True Nothing  = return clearCookie
     saveSesh now _ (Just s) = do
-        value <- CS.encryptIO key $ S.encode $ SessionCookie (now + timeout) s
-        return . setCookieHeader $ makeCookie seshId value
+        encoded <- Jwt.encode [key] cookieEncoding $ Jwt.Claims (S.encode $ SessionCookie (now + timeout) s)
+        -- TODO: If this fails, it's a config error, so report it
+        return $ case encoded of
+            Right (Jwt.Jwt v) -> setCookieHeader $ makeCookie seshId v
+            Left _            -> clearCookie
 
     clearCookie = setCookieHeader $ (makeCookie seshId "") { setCookieMaxAge = Just 0 }
     setCookieHeader cookie = Just ("Set-Cookie", toByteString $ renderSetCookie cookie)
@@ -79,4 +123,3 @@ defaultLoadSession timeout key req = do
         --, setCookieSecure   = True
         , setCookiePath     = Just "/"
         }
-

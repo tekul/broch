@@ -19,7 +19,6 @@ import Network.URI (uriPath)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Test (SResponse(..))
 import Test.Hspec
-import Web.ClientSession (getDefaultKey)
 
 import Broch.Model
 import Broch.Server.Internal
@@ -112,7 +111,7 @@ tokenRequest cid secret redirectUri gt code = do
 testapp = do
     pool <- runNoLoggingT $ createSqlitePool ":memory:" 2
     let issuer = "http://testapp"
-    csKey <- getDefaultKey
+    csKey <- Session.defaultKey
     router <- testBroch issuer pool
     let app = routerToApp (Session.defaultLoadSession 60 csKey) issuer router
     return $ logStdoutDev app

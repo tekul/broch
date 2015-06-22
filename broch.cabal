@@ -51,10 +51,9 @@ Library
                     , cereal     >= 0.4
                     , containers >= 0.4
                     , cookie     >= 0.4
-                    , clientsession >= 0.9
                     , cryptonite >= 0.3
                     , jose-jwt   >= 0.7
-                    , memory     >= 0.7
+                    , memory     >= 0.4
                     , data-default-generics >= 0.3
                     , directory
                     , http-conduit >= 2.1
@@ -91,7 +90,6 @@ Test-suite tests
                     , base
                     , blaze-builder >= 0.3
                     , case-insensitive
-                    , clientsession
                     , containers
                     , cookie
                     , deepseq
