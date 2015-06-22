@@ -22,7 +22,6 @@ Library
   Default-Language:   Haskell2010
   Exposed-modules:    Broch.Model
                     , Broch.Token
-                    , Broch.Random
                     , Broch.OAuth2.ClientAuth
                     , Broch.OAuth2.Token
                     , Broch.OAuth2.Authorize
@@ -53,12 +52,9 @@ Library
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , clientsession >= 0.9
-                    , jose-jwt      >= 0.6
-                    , cryptohash >= 0.11
-                    , crypto-pubkey >= 0.2
-                    , cipher-aes >= 0.2
-                    , cprng-aes >= 0.5.2
-                    , crypto-random >= 0.0.7
+                    , cryptonite >= 0.3
+                    , jose-jwt   >= 0.7
+                    , memory     >= 0.7
                     , data-default-generics >= 0.3
                     , directory
                     , http-conduit >= 2.1
@@ -103,11 +99,7 @@ Test-suite tests
                     , time
                     , bytestring
                     , base64-bytestring
-                    , cryptohash
-                    , crypto-pubkey
-                    , crypto-random
-                    , cipher-aes
-                    , cprng-aes
+                    , cryptonite
                     , http-types
                     , mtl
                     , monad-logger

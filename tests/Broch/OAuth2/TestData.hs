@@ -5,8 +5,6 @@ module Broch.OAuth2.TestData where
 
 import Data.Aeson
 import Data.Aeson.QQ
-import Crypto.Random (CPRG(..))
-import qualified Data.ByteString as B
 import Data.Time.Clock.POSIX
 import Jose.Jwt (KeyId(..), IntDate(..))
 import Jose.Jwk
@@ -17,19 +15,6 @@ import Broch.Model
 -- Tue 13 May 2014 17:53:20 BST
 now = fromIntegral (1400000000 :: Int) :: POSIXTime
 
-
--- Fake CPRNG for client authentication
-data RNG = RNG
-
-instance CPRG RNG where
-    cprgGenerate n g        = (B.replicate n 255, g)
-    cprgFork                = undefined
-    cprgCreate              = undefined
-    cprgSetReseedThreshold  = undefined
-    cprgGenerateWithEntropy = undefined
-
-withTestRNG :: (Monad m) => WithCPRG m RNG
-withTestRNG f = return $ fst $ f RNG
 
 -- Client JWKs
 

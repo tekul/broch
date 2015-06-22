@@ -12,7 +12,7 @@ import Prelude hiding (exp)
 import Control.Applicative ((<$>))
 import Control.Error
 import Control.Monad.State.Strict
-import Crypto.Random (CPRG)
+import Crypto.Random (MonadRandom)
 import Data.Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (toStrict)
@@ -30,30 +30,29 @@ tokenTTL = 3600
 refreshTokenTTL :: POSIXTime
 refreshTokenTTL = 3600 * 24
 
-createJwtToken :: (CPRG g, ToJSON a)
-               => g
-               -> [Jwk]
-               -> [Jwk]
-               -> AlgPrefs
-               -> a
-               -> (Either Jwt.JwtError Jwt.Jwt, g)
-createJwtToken rng sigKeys encKeys prefs claims = case prefs of
-    AlgPrefs s e -> flip runState rng $ runEitherT $ do
-        let payload = Jwt.Claims cBytes
-        signed <- case s of
-            Nothing -> return payload
-            Just a  -> fmap Jwt.Nested (hoistEither =<< state (\g -> Jwt.encode g sigKeys (Jwt.JwsEncoding a) payload))
-        case e of
-            NotEncrypted -> case signed of
-                Jwt.Nested jwt -> return jwt
-                Jwt.Claims _   -> left $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
-            E alg enc    -> hoistEither =<< state (\g -> Jwt.encode g encKeys (Jwt.JweEncoding alg enc) signed)
+createJwtToken :: (MonadRandom m, ToJSON a)
+    => [Jwk]
+    -> [Jwk]
+    -> AlgPrefs
+    -> a
+    -> m (Either Jwt.JwtError Jwt.Jwt)
+createJwtToken sigKeys encKeys (AlgPrefs s e) claims = runEitherT $ do
+    let payload = Jwt.Claims cBytes
+    signed <- case s of
+        Nothing -> return payload
+        Just a  -> do
+            jws <- hoistEither =<< lift (Jwt.encode sigKeys (Jwt.JwsEncoding a) payload)
+            return (Jwt.Nested jws)
+    case e of
+        NotEncrypted -> case signed of
+            Jwt.Nested jwt -> return jwt
+            Jwt.Claims _   -> left $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
+        E alg enc    -> hoistEither =<< lift (Jwt.encode encKeys (Jwt.JweEncoding alg enc) signed)
   where
     cBytes = toStrict (encode claims)
 
-createJwtAccessToken :: (CPRG g)
-    => g
-    -> [Jwk]
+createJwtAccessToken :: MonadRandom m
+    => [Jwk]
     -> [Jwk]
     -> AlgPrefs
     -> Maybe SubjectId
@@ -61,13 +60,13 @@ createJwtAccessToken :: (CPRG g)
     -> GrantType
     -> [Scope]
     -> POSIXTime
-    -> (Either Jwt.JwtError (ByteString, Maybe ByteString, TokenTTL), g)
-createJwtAccessToken rng sigKeys encKeys prefs user client grantType scopes now = flip runState rng $ runEitherT $ do
+    -> m (Either Jwt.JwtError (ByteString, Maybe ByteString, TokenTTL))
+createJwtAccessToken sigKeys encKeys prefs user client grantType scopes now = runEitherT $ do
     Jwt.Jwt token  <- toJwt claims
     refreshToken   <- issueRefresh
     return (token, refreshToken, tokenTTL)
   where
-    toJwt payload = hoistEither =<< state (\g -> createJwtToken g sigKeys encKeys prefs payload)
+    toJwt payload = hoistEither =<< lift (createJwtToken sigKeys encKeys prefs payload)
     issueRefresh
       | grantType /= Implicit && RefreshToken `elem` authorizedGrantTypes client = Just . Jwt.unJwt <$> toJwt refreshClaims
       | otherwise = return Nothing
@@ -89,17 +88,16 @@ createJwtAccessToken rng sigKeys encKeys prefs user client grantType scopes now 
         , aud = ["refresh"]
         }
 
-decodeJwtAccessToken :: CPRG g
-    => g
-    -> [Jwk]
+decodeJwtAccessToken :: MonadRandom m
+    => [Jwk]
     -> [Jwk]
     -> AlgPrefs
     -> ByteString
-    -> (Maybe AccessGrant, g)
-decodeJwtAccessToken rng sigKeys decKeys (AlgPrefs s e) jwt = flip runState rng $ runMaybeT $ do
+    -> m (Maybe AccessGrant)
+decodeJwtAccessToken sigKeys decKeys (AlgPrefs s e) jwt = runMaybeT $ do
     payload1 <- case e of
         E alg enc -> do
-            content <- state $ \g -> Jwt.decode g decKeys (Just $ Jwt.JweEncoding alg enc) jwt
+            content <- lift $ Jwt.decode decKeys (Just $ Jwt.JweEncoding alg enc) jwt
             case content of
                 Right (Jwt.Jwe (_, bytes)) -> just bytes
                 _                          -> nothing
@@ -108,7 +106,7 @@ decodeJwtAccessToken rng sigKeys decKeys (AlgPrefs s e) jwt = flip runState rng 
     claims <- case s of
         Nothing  -> just payload1
         Just alg -> do
-            content <- state $ \g -> Jwt.decode g sigKeys (Just $ Jwt.JwsEncoding alg) payload1
+            content <- lift $ Jwt.decode sigKeys (Just $ Jwt.JwsEncoding alg) payload1
             case content of
                 Right (Jwt.Jws (_, bytes)) -> just bytes
                 _                          -> nothing

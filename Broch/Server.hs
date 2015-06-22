@@ -6,6 +6,7 @@ import           Control.Applicative
 import           Control.Error hiding (err)
 import           Control.Exception (SomeException, catch)
 import           Control.Monad.State.Strict
+import           Crypto.Random (getRandomBytes, MonadRandom)
 import           Data.Aeson as A hiding (json)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -40,7 +41,6 @@ import           Broch.OpenID.Discovery (mkOpenIDConfiguration)
 import           Broch.OpenID.IdToken
 import           Broch.OpenID.Registration
 import           Broch.OpenID.UserInfo
-import           Broch.Random
 import qualified Broch.Server.BlazeUI as UI
 import           Broch.Server.Config
 import           Broch.Server.Internal
@@ -141,7 +141,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
             prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client
 
         sigKeys <- liftIO (signingKeys keyRing)
-        liftIO $ withCPRG $ \g -> createJwtToken g (maybe sigKeys (: sigKeys) csKey) rpKeys prefs claims
+        createJwtToken (maybe sigKeys (: sigKeys) csKey) rpKeys prefs claims
 
     registerClient c = do
         cid <- generateCode
@@ -209,7 +209,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
             Just (AlgPrefs Nothing NotEncrypted) -> json claims
             Just a  -> do
                 sigKeys <- liftIO (signingKeys keyRing)
-                jwtRes <- liftIO $ withCPRG $ \rng -> createJwtToken rng sigKeys (fromMaybe [] (clientKeys client)) a claims
+                jwtRes <- liftIO $ createJwtToken sigKeys (fromMaybe [] (clientKeys client)) a claims
                 case jwtRes of
                     Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
                     Left  e         -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
@@ -246,7 +246,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
         env  <- queryParams
         now  <- liftIO getPOSIXTime
 
-        response <- processAuthorizationRequest loadClient (liftIO generateCode) createAuthz resourceOwnerApproval createAccess createIdToken user env now
+        response <- processAuthorizationRequest loadClient generateCode createAuthz resourceOwnerApproval createAccess createIdToken user env now
         case response of
             Right url                      -> redirectExternal $ TE.encodeUtf8 url
             Left (MaliciousClient e)       -> evilClientError e
@@ -277,7 +277,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
         let authzHdr = lookup hAuthorization $ W.requestHeaders r
         env    <- postParams
         now    <- liftIO getPOSIXTime
-        clientAuth <- authenticateClient env authzHdr now loadClient (liftIO . withCPRG)
+        clientAuth <- authenticateClient env authzHdr now loadClient
         case clientAuth of
             Left InvalidClient401 -> status unauthorized401 >> setHeader "WWW-Authenticate" "Basic" >> json (toJSON InvalidClient401)
             Left bad              -> status badRequest400   >> json (toJSON bad)
@@ -292,8 +292,8 @@ debug :: (MonadIO m, Show a) => a -> m ()
 debug = liftIO . print
 
 -- Create a random authorization code
-generateCode :: IO ByteString
-generateCode = liftM Hex.encode $ randomBytes 8
+generateCode :: MonadRandom m => m ByteString
+generateCode = liftM Hex.encode $ getRandomBytes 8
 
 clearCachedLocation :: Handler ()
 clearCachedLocation = sessionDelete "_loc"

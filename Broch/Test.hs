@@ -5,6 +5,7 @@ module Broch.Test where
 import           Control.Applicative
 import           Control.Monad.IO.Class
 import qualified Crypto.BCrypt as BCrypt
+import           Crypto.Random (getRandomBytes)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.Default.Generics as DD
 import           Data.Time.Clock
@@ -19,7 +20,6 @@ import           Web.Routing.TextRouting
 import           Broch.Model
 import           Broch.Persist (persistBackend)
 import qualified Broch.Persist.Internal as BP
-import           Broch.Random (randomBytes)
 import           Broch.Scim
 import           Broch.Server (brochServer, defaultLoginPage,  defaultApprovalPage, authenticatedSubject, passwordLoginHandler)
 import           Broch.Server.Internal
@@ -66,7 +66,7 @@ testBroch issuer pool = do
         let meta = Meta now now Nothing Nothing
         flip runSqlPersistMPool pool $ BP.createUser uid password scimData { scimId = Just uid, scimMeta = Just meta }
 
-    randomPassword = (TE.decodeUtf8 . B64.encode) <$> randomBytes 12
+    randomPassword = (TE.decodeUtf8 . B64.encode) <$> getRandomBytes 12
 
     hashPassword p = do
         hash <- liftIO $ BCrypt.hashPasswordUsingPolicy BCrypt.fastBcryptHashingPolicy (TE.encodeUtf8 p)

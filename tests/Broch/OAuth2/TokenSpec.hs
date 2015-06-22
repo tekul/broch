@@ -5,6 +5,7 @@ module Broch.OAuth2.TokenSpec where
 
 import Control.Applicative ((<$>))
 import Control.Monad.Identity
+import Crypto.Random
 import qualified Data.Aeson as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
@@ -15,6 +16,7 @@ import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Word (Word64)
 import Jose.Jwt
 import Jose.Jwa
 import qualified Jose.Jws as Jws
@@ -159,15 +161,17 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
     appKey       = TE.encodeUtf8 $ fromJust $ clientSecret appClient
     Right (Jwt appJwt) = Jws.hmacEncode HS256 appKey appClaims
     Right (Jwt badSig) = Jws.hmacEncode HS256 "wrongkey" appClaims
-    Right (Jwt pkJwt)  = fst $ encode RNG testPrivateJwks (JwsEncoding RS256) (Claims appClaims)
+    Right (Jwt pkJwt)  = fst $ withDRG testRNG (encode testPrivateJwks (JwsEncoding RS256) (Claims appClaims))
     appClaims    = BL.toStrict $ A.encode $ clientClaims appClient ["anissuer"]
 
     assertionTypeParam = ("client_assertion_type", ["urn:ietf:params:oauth:client-assertion-type:jwt-bearer"])
     messedUp = Left $ CA.InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
-    doAuth env hdr clnt = fmap clientId $ runIdentity $ CA.authenticateClient env hdr now (loadClient clnt) withTestRNG
+    doAuth env hdr clnt = fmap clientId $ fst $ withDRG testRNG $ CA.authenticateClient env hdr now (loadClient clnt)
     loadClient c id'
       | clientId c == id' = return $ Just c
       | otherwise         = return Nothing
+
+testRNG = drgNewTest (w, w, w, w, w) where w = 1 :: Word64
 
 clientClaims client aud = JwtClaims
     { jwtIss = Just $ clientId client

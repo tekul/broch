@@ -6,7 +6,7 @@ import           Control.Applicative
 import           Control.Error
 import           Control.Monad.Trans (lift)
 import           Control.Monad (join, unless)
-import           Crypto.Random (CPRG)
+import           Crypto.Random (MonadRandom)
 import           Data.Aeson hiding (decode)
 import           Data.Byteable (constEqBytes)
 import           Data.ByteString (ByteString)
@@ -39,14 +39,14 @@ instance ToJSON ClientAuthError where
 -- On failure an invalid_client error is returned with a 400 error
 -- code, or 401 if the client used the Authorization header.
 -- See http://tools.ietf.org/html/rfc6749#section-5.2
-authenticateClient :: (Applicative m, Monad m, CPRG g)
-                   => Map Text [Text]
-                   -> Maybe ByteString
-                   -> POSIXTime
-                   -> LoadClient m
-                   -> WithCPRG m g
-                   -> m (Either ClientAuthError Client)
-authenticateClient env authzHeader now getClient withRng = runEitherT $ do
+
+authenticateClient :: (Applicative m, MonadRandom m)
+    => Map Text [Text]
+    -> Maybe ByteString
+    -> POSIXTime
+    -> LoadClient m
+    -> m (Either ClientAuthError Client)
+authenticateClient env authzHeader now getClient = runEitherT $ do
     clid      <- maybeParam "client_id"
     secret    <- maybeParam "client_secret"
     assertion <- maybeParam "client_assertion"
@@ -91,7 +91,7 @@ authenticateClient env authzHeader now getClient withRng = runEitherT $ do
                 either (left . showT) (const $ return client) $ hmacDecode (TE.encodeUtf8 sec) jwt
             PrivateKeyJwt   -> do
                 keys           <- clientKeys client ?? "client has no keys"
-                validOrInvalid <- lift $ withRng $ \g -> decode g keys (Just $ JwsEncoding alg) jwt
+                validOrInvalid <- lift $ decode keys (Just (JwsEncoding alg)) jwt
                 either (left . showT) (const $ return client) validOrInvalid
             _               -> left "client is not registered to use assertion authentication"
 

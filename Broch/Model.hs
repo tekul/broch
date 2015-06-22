@@ -3,7 +3,6 @@
 module Broch.Model where
 
 import Control.Applicative (pure)
-import Crypto.Random (CPRG)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Default.Generics
@@ -18,8 +17,6 @@ import GHC.Generics
 import Jose.Jwt (Jwt, JwtError, IntDate)
 import Jose.Jwa (JwsAlg, JweAlg, Enc)
 import Jose.Jwk
-
-type WithCPRG m g = CPRG g => (g -> (a, g)) -> m a
 
 type TokenTTL = NominalDiffTime
 

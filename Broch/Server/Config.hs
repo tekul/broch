@@ -7,6 +7,7 @@ import           Control.Concurrent.MVar
 import           Control.Error
 import           Control.Monad (when)
 import           Control.Monad.IO.Class
+import           Crypto.Random (withDRG, getSystemDRG)
 import qualified Data.Aeson as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -20,7 +21,6 @@ import           Jose.Jwt
 import           System.Directory (doesFileExist)
 
 import Broch.Model
-import Broch.Random
 import Broch.Token
 
 
@@ -161,16 +161,16 @@ getKeyRing KeyRingParams {..} = do
         case jwks of
             Just (JwkSet ks) -> return ks
             Nothing          -> do
-                ks <- generateKeys
+                ks  <- generateKeys
                 saveKeys ks
                 return ks
 
     saveKeys ks = BL.writeFile keyRingFile (A.encode (JwkSet ks))
 
     generateKeys = do
-        now         <- getCurrentTime
-        (sigPub, sigPr) <- withCPRG $ \g -> generateRsaKeyPair g rsaKeySizeBytes (UTCKeyId now) Sig Nothing
-        (encPub, encPr) <- withCPRG $ \g -> generateRsaKeyPair g rsaKeySizeBytes (UTCKeyId (addUTCTime 1 now)) Enc Nothing
+        now <- getCurrentTime
+        (sigPub, sigPr) <- generateRsaKeyPair rsaKeySizeBytes (UTCKeyId now) Sig Nothing
+        (encPub, encPr) <- generateRsaKeyPair rsaKeySizeBytes (UTCKeyId (addUTCTime 1 now)) Enc Nothing
         return [sigPub, sigPr, encPub, encPr]
 
 -- | Creates a configuration using in-memory storage for simple testing.
@@ -186,7 +186,9 @@ inMemoryConfig issuer kr = do
     let accessTokenEncoding = AlgPrefs Nothing (E RSA_OAEP A128GCM)
         decodeToken t = do
             dKeys <- decryptionKeys kr
-            liftIO $ withCPRG $ \g -> decodeJwtAccessToken g [] dKeys accessTokenEncoding t
+            rng <- liftIO getSystemDRG
+            let (grant, _) = withDRG rng (decodeJwtAccessToken [] dKeys accessTokenEncoding t)
+            return grant
 
     return Config
         { issuerUrl  = issuer
@@ -214,7 +216,8 @@ inMemoryConfig issuer kr = do
                Nothing -> return (as, Nothing)
         , createAccessToken = \user client gt scp now -> do
             encKeys <- publicKeys kr
-            tokens <- liftIO $ withCPRG $ \g -> createJwtAccessToken g [] encKeys accessTokenEncoding user client gt scp now
+            rng     <- liftIO getSystemDRG
+            let (tokens, _) = withDRG rng (createJwtAccessToken [] encKeys accessTokenEncoding user client gt scp now)
             return $ fmapL (const "Failed to create JWT access token") tokens
         , decodeAccessToken = decodeToken
         , decodeRefreshToken = \_ token -> decodeToken (TE.encodeUtf8 token)
