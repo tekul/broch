@@ -9,9 +9,9 @@ import Control.Monad (liftM, when, unless)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
 import Data.Aeson (encode, Result(..), fromJSON, eitherDecode', FromJSON, ToJSON)
-import Data.Aeson.Types (Value(..), Object)
+import Data.Aeson.Types (Value(..))
+import Data.ByteArray.Encoding
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as H
@@ -93,7 +93,7 @@ isRedirect r = let status = simpleStatus r
 failure msg = liftIO $ HUnit.assertFailure msg
 
 basicAuth :: Text -> Text -> WaiTest ()
-basicAuth name password = let authz = Just $ B.concat ["Basic ", B64.encode $ B.concat [TE.encodeUtf8 name, ":", TE.encodeUtf8 password]]
+basicAuth name password = let authz = Just $ B.concat ["Basic ", convertToBase Base64 $ B.concat [TE.encodeUtf8 name, ":", TE.encodeUtf8 password]]
                           in  ST.modify $ \s -> s {testAuthz = authz}
 
 bearerAuth :: ByteString -> WaiTest()

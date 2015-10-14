@@ -8,10 +8,10 @@ import           Control.Monad.Trans (lift)
 import           Control.Monad (join, unless)
 import           Crypto.Random (MonadRandom)
 import           Data.Aeson hiding (decode)
-import           Data.Byteable (constEqBytes)
+import           Data.ByteArray (constEq)
+import           Data.ByteArray.Encoding
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Base64 as B64
 import           Data.Map (Map)
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -100,7 +100,7 @@ authenticateClient env authzHeader now getClient = runEitherT $ do
         checkClientSecret cid secret
       where
         decodedHeader = case B.split ' ' h of
-            ["Basic", b] -> join $ creds <$> hush (B64.decode b)
+            ["Basic", b] -> join $ creds <$> hush (convertFromBase Base64 b)
             _            -> Nothing
 
         creds bs = case T.break (== ':') <$> TE.decodeUtf8' bs of
@@ -115,7 +115,7 @@ authenticateClient env authzHeader now getClient = runEitherT $ do
         hoistMaybe $ case client of
             Nothing -> Nothing
             Just c  -> clientSecret c >>= \s ->
-                if constEqBytes (TE.encodeUtf8 s) (TE.encodeUtf8 secret)
+                if constEq (TE.encodeUtf8 s) (TE.encodeUtf8 secret)
                     then Just c
                     else Nothing
 

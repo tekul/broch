@@ -8,10 +8,10 @@ import           Control.Exception (SomeException, catch)
 import           Control.Monad.State.Strict
 import           Crypto.Random (getRandomBytes, MonadRandom)
 import           Data.Aeson as A hiding (json)
+import           Data.ByteArray.Encoding
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Base16 as Hex
 import qualified Data.HashMap.Strict as HM
 import           Data.Int (Int64)
 import           Data.List (intersect)
@@ -293,7 +293,9 @@ debug = liftIO . print
 
 -- Create a random authorization code
 generateCode :: MonadRandom m => m ByteString
-generateCode = liftM Hex.encode $ getRandomBytes 8
+generateCode = do
+    code <- getRandomBytes 8
+    return (convertToBase Base16 (code :: ByteString))
 
 clearCachedLocation :: Handler ()
 clearCachedLocation = sessionDelete "_loc"

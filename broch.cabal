@@ -45,23 +45,19 @@ Library
                     , mtl >= 2.1.3.1
                     , blaze-builder >= 0.3
                     , blaze-html >= 0.7
-                    , bcrypt >= 0.0.4
                     , bytestring >= 0.10
-                    , byteable   >= 0.1.1
                     , cereal     >= 0.4
                     , containers >= 0.4
                     , cookie     >= 0.4
-                    , cryptonite >= 0.3
+                    , cryptonite >= 0.8
                     , jose-jwt   >= 0.7
-                    , memory     >= 0.4
+                    , memory     >= 0.10
                     , data-default-generics >= 0.3
                     , directory
                     , http-conduit >= 2.1
                     , http-types >= 0.8
                     , aeson >= 0.8.1.0
                     , text  >= 0.11
-                    , base16-bytestring
-                    , base64-bytestring >= 1
                     , persistent >= 2.1 && < 3
                     , persistent-template >= 2.1 && < 3
                     , reroute >= 0.2.3
@@ -96,9 +92,9 @@ Test-suite tests
                     , either
                     , time
                     , bytestring
-                    , base64-bytestring
                     , cryptonite
                     , http-types
+                    , memory
                     , mtl
                     , monad-logger
                     , network >= 2.6

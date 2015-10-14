@@ -7,8 +7,8 @@ import Control.Applicative ((<$>))
 import Control.Monad.Identity
 import Crypto.Random
 import qualified Data.Aeson as A
+import Data.ByteArray.Encoding
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, fromJust)
@@ -40,7 +40,7 @@ success t = Right $ AccessTokenResponse t Bearer 987 Nothing (Just "refreshtoken
 
 doToken env client = runIdentity $ processTokenRequest env client now loadAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken
 
-basicHeader cid secret = Just $ B.concat ["Basic ", B64.encode $ TE.encodeUtf8 $ T.concat [cid, ":", secret]]
+basicHeader cid secret = Just $ B.concat ["Basic ", convertToBase Base64 $ TE.encodeUtf8 $ T.concat [cid, ":", secret]]
 
 grantTypeParameterErrorsSpec =
     describe "A request with grant_type parameter error(s) (5.2)" $ do
@@ -104,7 +104,7 @@ clientAuthenticationSpec = describe "Client authentication scenarios" $ do
         doAuth authCodeEnv (basicHeader "app" "") appClient @?= Left CA.InvalidClient401
 
       it "returns invalid_client 401 when Basic header is missing colon" $
-        doAuth authCodeEnv (Just $ B.concat ["Basic ", B64.encode "appappsecret"]) appClient @?= Left CA.InvalidClient401
+        doAuth authCodeEnv (Just $ B.concat ["Basic ", convertToBase Base64 ("appappsecret" :: B.ByteString)]) appClient @?= Left CA.InvalidClient401
 
       it "returns invalid_client 401 when Basic header is not base64 encoded" $
         doAuth authCodeEnv (Just $ B.concat ["Basic ", "app:appsecret"]) appClient @?= Left CA.InvalidClient401

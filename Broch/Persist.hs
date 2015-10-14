@@ -3,7 +3,7 @@
 module Broch.Persist where
 
 import           Control.Monad.State.Strict
-import qualified Crypto.BCrypt as BCrypt
+import qualified Crypto.KDF.BCrypt as BCrypt
 import           Data.Maybe (fromJust)
 import qualified Data.Text.Encoding as TE
 import           Database.Persist.Sql (ConnectionPool, runSqlPersistMPool)
@@ -22,7 +22,7 @@ persistBackend pool config =
             u <- liftIO . runDB $ BP.getUserByUsername username
             return $ case u of
                 Nothing          -> Nothing
-                Just (uid, hash) -> if BCrypt.validatePassword (TE.encodeUtf8 hash) (TE.encodeUtf8 password)
+                Just (uid, hash) -> if BCrypt.validatePassword (TE.encodeUtf8 password) (TE.encodeUtf8 hash)
                                         then Just uid
                                         else Nothing
         saveApproval a = runDB $ BP.createApproval a

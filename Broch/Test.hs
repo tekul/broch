@@ -4,9 +4,10 @@ module Broch.Test where
 
 import           Control.Applicative
 import           Control.Monad.IO.Class
-import qualified Crypto.BCrypt as BCrypt
+import qualified Crypto.KDF.BCrypt as BCrypt
 import           Crypto.Random (getRandomBytes)
-import qualified Data.ByteString.Base64 as B64
+import           Data.ByteArray.Encoding
+import           Data.ByteString (ByteString)
 import qualified Data.Default.Generics as DD
 import           Data.Time.Clock
 import           Data.Text (Text)
@@ -62,12 +63,14 @@ testBroch issuer pool = do
     createUser scimData = do
         now <- Just <$> liftIO getCurrentTime
         uid <- (T.pack . toString) <$> liftIO nextRandom
-        password <- hashPassword =<< maybe randomPassword return (scimPassword scimData)
+        password <- maybe randomPassword return (scimPassword scimData)
+        hashedPassword <- hashPassword password
         let meta = Meta now now Nothing Nothing
-        flip runSqlPersistMPool pool $ BP.createUser uid password scimData { scimId = Just uid, scimMeta = Just meta }
+        flip runSqlPersistMPool pool $ BP.createUser uid hashedPassword scimData { scimId = Just uid, scimMeta = Just meta }
 
-    randomPassword = (TE.decodeUtf8 . B64.encode) <$> getRandomBytes 12
+    randomPassword :: IO Text
+    randomPassword = do
+        password <- getRandomBytes 12
+        return $ (TE.decodeUtf8 . convertToBase Base64) (password :: ByteString)
 
-    hashPassword p = do
-        hash <- liftIO $ BCrypt.hashPasswordUsingPolicy BCrypt.fastBcryptHashingPolicy (TE.encodeUtf8 p)
-        maybe (error "Hash failed") (return . TE.decodeUtf8) hash
+    hashPassword p = fmap TE.decodeUtf8 (BCrypt.hashPassword 8 (TE.encodeUtf8 p))
