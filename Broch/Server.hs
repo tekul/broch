@@ -172,7 +172,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
 
         -- retrieve client keys if URI set
         runEitherT $ do
-            client <- hoistEither $ makeClient (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
+            client <- hoistEither $ makeClient oidConfig (TE.decodeUtf8 cid) (TE.decodeUtf8 sec) c
             checkSectorIdentifierUri
             ks     <- case clientKeysUri client of
                 Just uri -> Just <$> retrieveJwks uri

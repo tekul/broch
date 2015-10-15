@@ -1,8 +1,9 @@
-{-# LANGUAGE OverloadedStrings, DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings, DeriveGeneric, RecordWildCards #-}
 
 module Broch.OpenID.Registration where
 
 import           Control.Applicative (pure, (<$>))
+import           Control.Monad (unless)
 import           Data.Aeson
 import           Data.Maybe (fromMaybe, isJust)
 import           Data.Text (Text)
@@ -12,6 +13,7 @@ import           Jose.Jwa
 import           Jose.Jwk
 
 import           Broch.Model
+import           Broch.OpenID.Discovery hiding (jwks_uri)
 
 data RegistrationError = InvalidRedirectUri
                        | InvalidMetaData Text
@@ -73,39 +75,70 @@ data ClientMetaData = ClientMetaData
     } deriving (Show, Generic)
 
 
-makeClient :: ClientId -> Text -> ClientMetaData -> Either RegistrationError Client
-makeClient cid csec md = do
-    idAlgs     <- makeAlgorithmPrefs (id_token_signed_response_alg md) (id_token_encrypted_response_alg md) (id_token_encrypted_response_enc md)
-    infoAlgs   <- makeAlgorithmPrefs (userinfo_signed_response_alg md) (userinfo_encrypted_response_alg md) (userinfo_encrypted_response_enc md)
-    reqObjAlgs <- makeAlgorithmPrefs (request_object_signing_alg   md) (request_object_encryption_alg md)   (request_object_encryption_enc md)
-    validateRedirectURIs (redirect_uris md)
+makeClient :: OpenIDConfiguration -> ClientId -> Text -> ClientMetaData -> Either RegistrationError Client
+makeClient OpenIDConfiguration {..} cid csec ClientMetaData {..} = do
+    checkAlgs
+    idAlgs     <- makeAlgorithmPrefs id_token_signed_response_alg id_token_encrypted_response_alg id_token_encrypted_response_enc
+    infoAlgs   <- makeAlgorithmPrefs userinfo_signed_response_alg userinfo_encrypted_response_alg userinfo_encrypted_response_enc
+    reqObjAlgs <- makeAlgorithmPrefs request_object_signing_alg request_object_encryption_alg request_object_encryption_enc
+    checkAuthMethod
+    checkRedirectURIs redirect_uris
+
     return Client
         { clientId = cid
         , clientSecret = Just csec
-        , authorizedGrantTypes = fromMaybe [AuthorizationCode] (grant_types md)
-        , redirectURIs = redirect_uris md
+        , authorizedGrantTypes = fromMaybe [AuthorizationCode] grant_types
+        , redirectURIs = redirect_uris
         , accessTokenValidity  = 24 * 60 * 60
         , refreshTokenValidity = 30 * 24 * 60 * 60
         , allowedScope = [OpenID, Profile, Email, Address, Phone]
         , autoapprove = False
-        , tokenEndpointAuthMethod = fromMaybe ClientSecretBasic $ token_endpoint_auth_method md
-        , tokenEndpointAuthAlg    = token_endpoint_auth_signing_alg md
-        , clientKeysUri           = jwks_uri md
-        , clientKeys              = keys <$> jwks md
+        , tokenEndpointAuthMethod = fromMaybe ClientSecretBasic token_endpoint_auth_method
+        , tokenEndpointAuthAlg    = token_endpoint_auth_signing_alg
+        , clientKeysUri           = jwks_uri
+        , clientKeys              = keys <$> jwks
         , idTokenAlgs             = idAlgs
         , userInfoAlgs            = infoAlgs
         , requestObjAlgs          = reqObjAlgs
         }
   where
-    validateRedirectURIs []     = Right ()
-    validateRedirectURIs (r:rs)
+    checkRedirectURIs []     = Right ()
+    checkRedirectURIs (r:rs)
         | isJust (T.find (== '#') r) = Left InvalidRedirectUri
-        | otherwise = validateRedirectURIs rs
+        | otherwise = checkRedirectURIs rs
+
     makeAlgorithmPrefs Nothing   Nothing  Nothing  = return Nothing
     makeAlgorithmPrefs (Just s)  Nothing  Nothing  = return . Just $ AlgPrefs (Just s) NotEncrypted
     makeAlgorithmPrefs s         (Just a) (Just e) = return . Just $ AlgPrefs s (E a e)
     makeAlgorithmPrefs s         (Just a) Nothing  = return . Just $ AlgPrefs s (E a A128CBC_HS256)
     makeAlgorithmPrefs _         Nothing (Just _)  = Left (InvalidMetaData "Encryption 'alg' must be provided if 'enc' is set")
+
+    checkAlgs = do
+        checkSigAlg id_token_signed_response_alg id_token_signing_alg_values_supported "id_token"
+        checkJweAlg id_token_encrypted_response_alg id_token_encryption_alg_values_supported "id_token"
+        checkJweEnc id_token_encrypted_response_enc id_token_encryption_enc_values_supported "id_token"
+        checkSigAlg userinfo_signed_response_alg user_info_signing_alg_values_supported "user_info"
+        checkJweAlg userinfo_encrypted_response_alg user_info_encryption_alg_values_supported "user_info"
+        checkJweEnc userinfo_encrypted_response_enc user_info_encryption_enc_values_supported "user_info"
+        checkSigAlg request_object_signing_alg request_object_signing_alg_values_supported "request_object"
+        checkJweAlg request_object_encryption_alg request_object_encryption_alg_values_supported "request_object"
+        checkJweEnc request_object_encryption_enc request_object_encryption_enc_values_supported "request_object"
+        checkSigAlg token_endpoint_auth_signing_alg token_endpoint_auth_signing_alg_values_supported "token_endpoint_auth"
+
+    checkAuthMethod = case token_endpoint_auth_method of
+        Nothing -> return ()
+        Just a  -> unless (a `elem` token_endpoint_auth_methods_supported) (Left (InvalidMetaData "Unsupported token_endpoint_auth_method"))
+
+    checkSigAlg Nothing _ _   = return ()
+    checkSigAlg (Just s) as t = unless (s `elem` as) (algError t " signing alg value is unsupported")
+
+    checkJweAlg Nothing _ _   = return ()
+    checkJweAlg (Just a) as t = unless (a `elem` as) (algError t " encryption alg value is unsupported")
+
+    checkJweEnc Nothing _ _   = return ()
+    checkJweEnc (Just e) es t = unless (e `elem` es) (algError t " encryption enc value is unsupported")
+
+    algError t msg = Left (InvalidMetaData (T.concat [t, msg]))
 
 instance FromJSON ClientMetaData
 
