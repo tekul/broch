@@ -21,7 +21,9 @@ instance Subject TestUser where
     subjectId (TU s) = s
     authTime  _      = now
 
-doAuthz env = runIdentity $ processAuthorizationRequest getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken (TU "cat") env now
+allowedResponseTypes = [Code, Token, CodeToken]
+
+doAuthz env = runIdentity $ processAuthorizationRequest allowedResponseTypes getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken (TU "cat") env now
 
 gc = return "acode"
 

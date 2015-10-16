@@ -246,7 +246,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
         env  <- queryParams
         now  <- liftIO getPOSIXTime
 
-        response <- processAuthorizationRequest loadClient generateCode createAuthz resourceOwnerApproval createAccess createIdToken user env now
+        response <- processAuthorizationRequest responseTypesSupported loadClient generateCode createAuthz resourceOwnerApproval createAccess createIdToken user env now
         case response of
             Right url                      -> redirectExternal $ TE.encodeUtf8 url
             Left (MaliciousClient e)       -> evilClientError e

@@ -71,8 +71,10 @@ type GenerateCode m = m ByteString
 type ResourceOwnerApproval m s = s -> Client -> [Scope] -> POSIXTime -> m [Scope]
 
 processAuthorizationRequest :: (Monad m, Subject s)
+    -- | Supported response types
+    => [ResponseType]
     -- | Function to load a client
-    => LoadClient m
+    -> LoadClient m
     -- | Function to generate an authorization code
     -> GenerateCode m
     -- | Function to store the authorization request for retrieval at the token endpoint.
@@ -97,7 +99,7 @@ processAuthorizationRequest :: (Monad m, Subject s)
     -- If an error is returned, the front end's behaviour will depend on the
     -- specific error type as defined above.
     -> m (Either AuthorizationRequestError Text)
-processAuthorizationRequest getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
+processAuthorizationRequest supportedResponseTypes getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
     -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI
     let redirectURI = fromMaybe (defaultRedirectURI client) uri
@@ -172,6 +174,7 @@ processAuthorizationRequest getClient genCode createAuthorization resourceOwnerA
     getAuthorizationRequest client = do
         state          <- maybeParam env "state" `failW` InvalidRequest
         responseType   <- hoistEither getResponseType
+        unless (responseType `elem` supportedResponseTypes) (left UnsupportedResponseType)
         unless (checkResponseType client responseType) $ left UnauthorizedClient
         maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` InvalidRequest
         nonce          <- maybeParam env "nonce" `failW` InvalidRequest

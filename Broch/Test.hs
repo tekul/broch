@@ -52,12 +52,14 @@ testBroch issuer pool = do
     kr <- defaultKeyRing
     rotateKeys kr True
     config <- persistBackend pool <$> inMemoryConfig issuer kr
-    let extraRoutes =
+    -- Allow everything for test options
+    let testConfig = config { responseTypesSupported = map snd responseTypes }
+        extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")
             , ("/login",  passwordLoginHandler defaultLoginPage (authenticateResourceOwner config))
             , ("/logout", invalidateSession >> complete)
             ]
-        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer config defaultApprovalPage authenticatedSubject) extraRoutes
+        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer testConfig defaultApprovalPage authenticatedSubject) extraRoutes
     return routingTable
   where
     createUser scimData = do
