@@ -71,34 +71,34 @@ type GenerateCode m = m ByteString
 type ResourceOwnerApproval m s = s -> Client -> [Scope] -> POSIXTime -> m [Scope]
 
 processAuthorizationRequest :: (Monad m, Subject s)
-    -- | Supported response types
     => [ResponseType]
-    -- | Function to load a client
+    -- ^ Supported response types
     -> LoadClient m
-    -- | Function to generate an authorization code
+    -- ^ Function to load a client
     -> GenerateCode m
-    -- | Function to store the authorization request for retrieval at the token endpoint.
+    -- ^ Function to generate an authorization code
     -> CreateAuthorization m s
-    -- | Function which obtains the resource owner's approval for the request.
+    -- ^ Function to store the authorization request for retrieval at the token endpoint.
     -- May involve a UI interaction, if the client has not previously been granted access.
     -> ResourceOwnerApproval m s
-    -- | Creates the access token which will be returned for implicit grant or
-    -- OpenID hybrid grant requests. If these aren't enabled it won't be invoked.
+    -- ^ Function which obtains the resource owner's approval for the request.
     -> CreateAccessToken m
-    -- | Creates the ID token which will be returned with the authorization
-    -- response for the relevant OpenID connect requests.
+    -- ^ Creates the access token which will be returned for implicit grant or
+    -- OpenID hybrid grant requests. If these aren't enabled it won't be invoked.
     -> CreateIdToken m
-    -- | The currently authenticated user. The front end should authenticate the user
-    -- before calling this function.
+    -- ^ Creates the ID token which will be returned with the authorization
+    -- response for the relevant OpenID connect requests.
     -> s
-    -- | The authorization request parameters.
+    -- ^ The currently authenticated user. The front end should authenticate the user
+    -- before calling this function.
     -> Map.Map Text [Text]
-    -- | The current time.
+    -- ^ The authorization request parameters.
     -> POSIXTime
-    -- | The successful redirect URL which the front end should return to the client.
+    -- ^ The current time.
+    -> m (Either AuthorizationRequestError Text)
+    -- ^ The successful redirect URL which the front end should return to the client.
     -- If an error is returned, the front end's behaviour will depend on the
     -- specific error type as defined above.
-    -> m (Either AuthorizationRequestError Text)
 processAuthorizationRequest supportedResponseTypes getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
     -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI

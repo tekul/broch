@@ -175,8 +175,8 @@ getKeyRing KeyRingParams {..} = do
 
 -- | Creates a configuration using in-memory storage for simple testing.
 inMemoryConfig :: (MonadIO m, Subject s)
-    -- | The issuer (the external URL used to access your server)
     => Text
+    -- ^ The issuer (the external URL used to access your server)
     -> KeyRing m
     -> IO (Config m s)
 inMemoryConfig issuer kr = do

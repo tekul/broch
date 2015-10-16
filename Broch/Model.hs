@@ -107,10 +107,10 @@ type LoadAuthorization m
 --
 -- <http://tools.ietf.org/html/rfc6749#section-1.3.3>.
 type AuthenticateResourceOwner m
-    -- | The username
      = Text
-    -- | The plaintext password, submitted by the client
+    -- ^ The username
     -> Text
+    -- ^ The plaintext password, submitted by the client
     -> m (Maybe SubjectId)
 
 -- | Find the authorization consent (approval) granted by a user to a client.
@@ -120,49 +120,48 @@ type AuthenticateResourceOwner m
 -- decision whether to approve the grant or not, or to approve a subset of the
 -- requested scope.
 type LoadApproval m
-    -- | The end user (resource owner) who approved the request
      = SubjectId
-    -- | The client to which the user granted access
+    -- ^ The end user (resource owner) who approved the request
     -> Client
-    -- | The current time, to check for expiry
+    -- ^ The client to which the user granted access
     -> POSIXTime
-    -- | The approval if it exists and has not expired
+    -- ^ The current time, to check for expiry
     -> m (Maybe Approval)
+    -- ^ The approval if it exists and has not expired
 
 type CreateApproval m
      = Approval
     -> m ()
 
 type CreateAccessToken m
-    -- | The end user (resource owner)
      = Maybe SubjectId
-    -- | The OAuth client the token will be issued to
     -> Client
-    -- | The grant type under which the token was requested
+    -- ^ The OAuth client the token will be issued to
     -> GrantType
-    -- | The scope granted to the client
+    -- ^ The grant type under which the token was requested
     -> [Scope]
-    -- | Current time
+    -- ^ The scope granted to the client
     -> POSIXTime
+    -- ^ Current time
     -> m (Either Text (ByteString, Maybe ByteString, TokenTTL))
 
 type CreateIdToken m
-    -- | The authenticated user
      = SubjectId
-    -- | The authentication time
+    -- ^ The authenticated user
     -> POSIXTime
-    -- | The client (audience)
+    -- ^ The authentication time
     -> Client
-    -- | The client submitted nonce
+    -- ^ The client (audience)
     -> Maybe Text
-    -- | Current time
+    -- ^ The client submitted nonce
     -> POSIXTime
-    -- | Authorization code
+    -- ^ Current time
     -> Maybe ByteString
-    -- | Access token
+    -- ^ Authorization code
     -> Maybe ByteString
-    -- | The token (either a JWS or JWE depending on the client)
+    -- ^ Access token
     -> m (Either JwtError Jwt)
+    -- ^ The token (either a JWS or JWE depending on the client)
 
 -- | Converts the access token submitted by a client into the access grant data.
 --
@@ -170,19 +169,19 @@ type CreateIdToken m
 -- from the token (if the token is a JWT, for example) or loading the data from persistent
 -- storage.
 type DecodeAccessToken m
-    -- | The token as submitted by the client
      = ByteString
-    -- | The access grant if the token is valid
+    -- ^ The token as submitted by the client
     -> m (Maybe AccessGrant)
+    -- ^ The access grant if the token is valid
 
 -- | Converts a refresh token submitted by a client into the corresponding access grant data.
 type DecodeRefreshToken m
-    -- | The authenticated client submitting the request
      = Client
-    -- | The refresh_token parameter
+    -- ^ The authenticated client submitting the request
     -> Text
-    -- | The access grant if the token is valid
+    -- ^ The refresh_token parameter
     -> m (Maybe AccessGrant)
+    -- ^ The access grant if the token is valid
 
 -- | Obtains the currently authenticated user
 --
@@ -193,12 +192,12 @@ type LookupAuthenticatedUser m s = Subject s => m s
 
 -- | Loads the data for a user info response
 type LoadUserInfo m
-    -- | The authenticated user whose data is being requested
      = SubjectId
-    -- | The client to whom the user is being authenticated
+    -- ^ The authenticated user whose data is being requested
     -> Client
-    -- | The user info data
+    -- ^ The client to whom the user is being authenticated
     -> m UserInfo
+    -- ^ The user info data
 
 data Authorization = Authorization
     { authzSubject :: !SubjectId
