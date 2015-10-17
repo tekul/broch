@@ -3,7 +3,7 @@
 module Broch.OpenID.Registration where
 
 import           Control.Applicative (pure, (<$>))
-import           Control.Monad (unless)
+import           Control.Monad (unless, when)
 import           Data.Aeson
 import           Data.Maybe (fromMaybe, isJust)
 import           Data.Text (Text)
@@ -83,11 +83,15 @@ makeClient OpenIDConfiguration {..} cid csec ClientMetaData {..} = do
     reqObjAlgs <- makeAlgorithmPrefs request_object_signing_alg request_object_encryption_alg request_object_encryption_enc
     checkAuthMethod
     checkRedirectURIs redirect_uris
+    let clientGrantTypes = fromMaybe [AuthorizationCode] grant_types
+    when ((Implicit `elem` clientGrantTypes) && (response_types_supported == [Code]))
+        (Left (InvalidMetaData "Implicit grant is not supported"))
+
 
     return Client
         { clientId = cid
         , clientSecret = Just csec
-        , authorizedGrantTypes = fromMaybe [AuthorizationCode] grant_types
+        , authorizedGrantTypes = clientGrantTypes
         , redirectURIs = redirect_uris
         , accessTokenValidity  = 24 * 60 * 60
         , refreshTokenValidity = 30 * 24 * 60 * 60
