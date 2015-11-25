@@ -240,7 +240,7 @@ instance ToJSON GrantType where
 
 instance FromJSON GrantType where
     parseJSON = withText "GrantType" $ \g ->
-        maybe (fail "Invalid grant type") pure $ lookup g grantTypes
+        maybe (fail "Invalid grant type") pure (lookupGrantType g)
 
 -- | Lookup table to convert grant_type request parameter to GrantType
 grantTypes :: [(Text, GrantType)]
@@ -253,6 +253,9 @@ grantTypes =
     , ("implicit",           Implicit)
     , ("urn:ietf:params:oauth:grant-type:jwt-bearer:", JwtBearer)
     ]
+
+lookupGrantType :: Text -> Maybe GrantType
+lookupGrantType nm = lookup nm grantTypes
 
 grantTypeNames :: [(GrantType, Text)]
 grantTypeNames = map swap grantTypes
@@ -271,22 +274,31 @@ data ClientAuthMethod
 instance Default ClientAuthMethod where
     def = ClientSecretBasic
 
+clientAuthMethodName :: ClientAuthMethod -> Text
+clientAuthMethodName a = case a of
+    ClientSecretBasic -> "client_secret_basic"
+    ClientSecretPost  -> "client_secret_post"
+    ClientSecretJwt   -> "client_secret_jwt"
+    PrivateKeyJwt     -> "private_key_jwt"
+    ClientAuthNone    -> "none"
+
+lookupClientAuth :: Text -> Maybe ClientAuthMethod
+lookupClientAuth am = case am of
+    "client_secret_basic" -> Just ClientSecretBasic
+    "client_secret_post"  -> Just ClientSecretPost
+    "client_secret_jwt"   -> Just ClientSecretJwt
+    "private_key_jwt"     -> Just PrivateKeyJwt
+    "none"                -> Just ClientAuthNone
+    _                     -> Nothing
+
 instance FromJSON ClientAuthMethod where
-    parseJSON = withText "ClientAuthMethod" $ \t -> case t of
-        "client_secret_basic" -> pure ClientSecretBasic
-        "client_secret_post"  -> pure ClientSecretPost
-        "client_secret_jwt"   -> pure ClientSecretJwt
-        "private_key_jwt"     -> pure PrivateKeyJwt
-        "none"                -> pure ClientAuthNone
-        _                     -> fail "Unknown or unsupported client auth method"
+    parseJSON = withText "ClientAuthMethod" $ \t ->
+        case lookupClientAuth t of
+            Just am -> pure am
+            Nothing -> fail "Unknown or unsupported client auth method"
 
 instance ToJSON ClientAuthMethod where
-    toJSON a = case a of
-        ClientSecretBasic -> String "client_secret_basic"
-        ClientSecretPost  -> String "client_secret_post"
-        ClientSecretJwt   -> String "client_secret_jwt"
-        PrivateKeyJwt     -> String "private_key_jwt"
-        ClientAuthNone    -> String "none"
+    toJSON = String . clientAuthMethodName
 
 data Client = Client
     { clientId :: ClientId

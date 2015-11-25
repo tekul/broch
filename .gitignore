@@ -1,5 +1,6 @@
 *.swp
 dist/
+pgdata/
 *.aes
 *.db3
 *.key
