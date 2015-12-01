@@ -102,7 +102,9 @@ insertApproval :: Pool Connection -> M.Approval -> IO ()
 insertApproval pool (M.Approval uid cid scope (IntDate expires)) = withResource pool $ \conn ->
     void $ execute conn [sql|
         INSERT INTO authz_approval (uid, client_id, scope, expires_at)
-        VALUES (?,?,?,?) |]
+        VALUES (?,?,?,?)
+        ON CONFLICT (uid, client_id) DO UPDATE SET scope = EXCLUDED.scope, expires_at = EXCLUDED.expires_at
+        |]
         (uid, cid, PGArray (map M.scopeName scope), posixSecondsToUTCTime expires)
 
 loadApproval :: Connection -> SubjectId -> ClientId -> POSIXTime -> IO (Maybe Approval)
