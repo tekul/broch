@@ -8,7 +8,6 @@ module Broch.OAuth2.Token
     )
 where
 
-import Control.Applicative
 import Control.Error
 import Control.Monad.Trans (lift)
 import Control.Monad (when)
@@ -16,7 +15,6 @@ import Data.Aeson hiding (decode)
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Map (Map)
-import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE

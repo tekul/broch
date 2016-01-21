@@ -9,7 +9,6 @@ where
 
 import Prelude hiding (exp)
 
-import Control.Applicative ((<$>))
 import Control.Error
 import Control.Monad.State.Strict
 import Crypto.Random (MonadRandom)

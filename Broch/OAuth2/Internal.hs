@@ -32,17 +32,16 @@ checkRequestedScope defaultScope maybeScope = case maybeScope of
 
 
 requireParam :: Map Text [Text] -> Text -> Either Text Text
-requireParam env name = case maybeParam env name of
-                          Right (Just v) -> Right v
-                          Right Nothing  -> Left $ T.append "Missing " name
-                          Left err       -> Left err
+requireParam env p = case maybeParam env p of
+    Right (Just v) -> Right v
+    Right Nothing  -> Left $ T.append "Missing " p
+    Left err       -> Left err
 
 maybeParam :: Map Text [Text] -> Text -> Either Text (Maybe Text)
-maybeParam env name = case Map.lookup name env of
-                          Just [""]    -> Left $ prefixMsg "Empty "
-                          Just [value] -> Right $ Just value
-                          Just (_:_)   -> Left $ prefixMsg "Duplicate "
-                          _            -> Right Nothing
-                        where
-                          prefixMsg m = T.append m name
-
+maybeParam env p = case Map.lookup p env of
+    Just [""]    -> Left $ prefixMsg "Empty "
+    Just [value] -> Right $ Just value
+    Just (_:_)   -> Left $ prefixMsg "Duplicate "
+    _            -> Right Nothing
+  where
+    prefixMsg m = T.append m p

@@ -2,7 +2,6 @@
 
 module Broch.Model where
 
-import Control.Applicative (pure)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Default.Generics

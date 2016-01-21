@@ -2,7 +2,6 @@
 
 module Broch.Server.Config where
 
-import           Control.Applicative
 import           Control.Concurrent.MVar
 import           Control.Error
 import           Control.Monad (when)

@@ -2,7 +2,6 @@
 
 module Broch.Server where
 
-import           Control.Applicative
 import           Control.Error hiding (err)
 import           Control.Exception (SomeException, catch)
 import           Control.Monad.State.Strict

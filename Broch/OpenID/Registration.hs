@@ -2,7 +2,6 @@
 
 module Broch.OpenID.Registration where
 
-import           Control.Applicative (pure, (<$>))
 import           Control.Monad (unless, when)
 import           Data.Aeson
 import           Data.Maybe (fromMaybe, isJust)

@@ -2,7 +2,6 @@
 
 module Broch.OAuth2.ClientAuth where
 
-import           Control.Applicative
 import           Control.Error
 import           Control.Monad.Trans (lift)
 import           Control.Monad (join, unless)

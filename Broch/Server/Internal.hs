@@ -31,11 +31,10 @@ where
 
 import Debug.Trace
 
-import Control.Applicative
 import Control.Arrow (second)
 import Control.Error
 import Control.Exception (SomeException, catch)
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Crypto.Random
