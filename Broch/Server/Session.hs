@@ -16,7 +16,6 @@ import Debug.Trace
 
 import Prelude hiding (lookup)
 import Blaze.ByteString.Builder (toByteString)
-import Control.Applicative ((<$>))
 import Control.Error
 import Control.Monad.Trans (lift)
 import Crypto.Random (getRandomBytes)
@@ -76,7 +75,7 @@ getKey file = do
                   else return Nothing
     case jwks of
         Just (JwkSet (k:_)) -> return k
-        Nothing             -> do
+        _ -> do
             k  <- getRandomBytes 16
             let jwk = SymmetricJwk k Nothing Nothing (Just (Encrypted A128KW))
             BL.writeFile file (A.encode (JwkSet [jwk]))
