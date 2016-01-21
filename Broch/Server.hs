@@ -194,7 +194,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
                         -- original JSON object
                         Right c -> do
                             status created201
-                            json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c), ("registration_access_token", String "this_is_a_worthless_fake"), ("registration_client_uri", String $ T.concat [issuerUrl, "/client/", clientId c])]
+                            json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c)]
                         Left  e -> status badRequest400 >> json e
             Right _            -> invalidMetaData "Client registration data must be a JSON Object"
 
