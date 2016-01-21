@@ -1,19 +1,20 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 
-import Prelude hiding (catch)
-
-import Control.Exception
+import Control.Exception hiding (Handler)
 import Control.Monad.Logger (runNoLoggingT)
-import Control.Monad.IO.Class (liftIO)
+import Data.ByteString (ByteString)
 import Data.Pool
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Database.Persist.Sqlite (createSqlitePool)
 import Database.PostgreSQL.Simple
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Handler.Warp
+import Options.Applicative
 --import Network.Wai.Handler.WarpTLS
 -- import Network.TLS
 import System.Directory
-import System.IO.Error hiding (catch)
+import System.IO.Error
 import Web.Routing.TextRouting
 
 import Broch.PostgreSQL
@@ -23,19 +24,63 @@ import Broch.Test
 import Broch.Server.Internal
 import Broch.Server.Session (defaultKey, defaultLoadSession)
 
+data BackEnd = POSTGRES | SQLITE deriving (Read, Show)
+
+data BrochOpts = BrochOpts
+    { issuer  :: T.Text
+    , port    :: Int
+    , connStr :: T.Text
+    , backEnd :: BackEnd
+    }
+
+backEndOption :: Parser BackEnd
+backEndOption = option auto
+    ( long "back-end"
+   <> metavar "(POSTGRES or SQLITE)"
+   <> value POSTGRES
+   <> help "the database backend to use for storage"
+    )
+
+textOption :: Mod OptionFields String -> Parser T.Text
+textOption x = T.pack <$> strOption x
+
+parser :: Parser BrochOpts
+parser = BrochOpts
+    <$> textOption
+        ( long "issuer"
+       <> help "The OP's issuer URL"
+       <> metavar "ISSUER"
+       <> value "http://localhost:3000" )
+    <*> option auto
+        ( long "port"
+       <> metavar "PORT"
+       <> value 3000
+       <> help "The port to listen on"
+        )
+    <*> textOption
+        ( long "connection-string"
+       <> help "The postgresql connection string"
+       <> metavar "DATABASE"
+       <> value "dbname=broch")
+    <*> backEndOption
+
 main :: IO ()
-main = do
+main = execParser (info parser mempty) >>= runWithOptions
+
+runWithOptions :: BrochOpts -> IO ()
+runWithOptions BrochOpts {..} = do
     sessionKey <- defaultKey
-    let issuer = "http://localhost:3000"
-        connStr = "dbname=broch"
     --router <- sqliteConfig issuer
-    router <- postgresqlConfig issuer connStr
+    router <- case backEnd of
+        POSTGRES -> postgresqlConfig issuer (TE.encodeUtf8 connStr)
+        SQLITE   -> sqliteConfig issuer
  --   let tlsConfig = tlsSettings "broch.crt" "broch.key"
     -- let config    = defaultSettings
     let waiApp = routerToApp (defaultLoadSession 3600 sessionKey) issuer router
-    run 3000 $ logStdoutDev waiApp
+    run port $ logStdoutDev waiApp
     --runTLS tlsConfig config $ logStdoutDev waiApp
 
+postgresqlConfig :: T.Text -> ByteString -> IO (RoutingTree (Handler ()))
 postgresqlConfig issuer connStr = do
     pool <- createPool createConn close 1 60 20
     kr <- defaultKeyRing
@@ -52,6 +97,7 @@ postgresqlConfig issuer connStr = do
   where
     createConn = connectPostgreSQL connStr
 
+sqliteConfig :: T.Text -> IO (RoutingTree (Handler ()))
 sqliteConfig issuer = do
     removeFile "broch.db3" `catch` eek
     pool   <- runNoLoggingT $ createSqlitePool "broch.db3" 2
