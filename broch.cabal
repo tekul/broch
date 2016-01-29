@@ -90,6 +90,7 @@ Executable broch
                     , text
                     , transformers
                     , wai
+                    , wai-app-static >= 3.1.4
                     , wai-extra
                     , warp
 
