@@ -7,19 +7,28 @@ import           Data.Int (Int64)
 import           Data.Time.Clock.POSIX
 
 import           Text.Blaze.Html5 as H
-import           Text.Blaze.Html5.Attributes hiding (scope, id)
+import           Text.Blaze.Html5.Attributes as A hiding (scope)
 
 import Broch.Model (Scope, scopeName, Client (..))
 
 loginPage :: Html
 loginPage = html $ do
-    H.head $
+    H.head $ do
         H.title "Login"
-    body $
-        H.form ! method "post" ! action "/login" $ do
-            input ! type_ "text" ! name "username"
-            input ! type_ "password" ! name "password"
-            input ! type_ "submit" ! value "Login"
+        link ! rel "stylesheet" ! href "css/login.css"
+    body $ do
+        H.div ! class_ "logo" $ ""
+        H.div ! class_ "loginform cf" $
+            H.form ! method "post" ! action "/login" ! acceptCharset "utf-8" $
+                ul $ do
+                    li $ do
+                        H.label ! for "username" $ "Username"
+                        input ! type_ "text" ! name "username" ! placeholder "username" ! required ""
+                    li $ do
+                        H.label ! for "password" $ "Password"
+                        input ! type_ "password" ! name "password" ! placeholder "password" ! required ""
+                    li $
+                        input ! type_ "submit" ! value "Login"
 
 approvalPage :: Client -> [Scope] -> Int64 -> Html
 approvalPage client scopes now = docTypeHtml $ html $ do
