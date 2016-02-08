@@ -94,7 +94,7 @@ Executable broch
                     , wai-extra
                     , warp
 
-  Ghc-Options:        -Wall -rtsopts
+  Ghc-Options:        -Wall -rtsopts -threaded
 
 
 
