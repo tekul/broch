@@ -64,7 +64,7 @@ data HandlerResult
 
 
 -- Request handler monad
-newtype Handler a = Handler { runHandler :: EitherT HandlerResult (ReaderT RequestData (StateT ResponseState IO)) a }
+newtype Handler a = Handler { runHandler :: ExceptT HandlerResult (ReaderT RequestData (StateT ResponseState IO)) a }
                         deriving (Applicative, Monad, Functor, MonadIO, MonadReader RequestData, MonadState ResponseState, MonadError HandlerResult)
 
 instance MonadRandom Handler where
@@ -121,7 +121,7 @@ routerToMiddleware loadSesh baseUrl router app req respond = case matchRoute' (p
     execHandler rd h = do
         (initSesh, saveSesh) <- loadSesh req
         let initRes = ResponseState status200 [] "" initSesh
-        (result, res) <- runStateT (runReaderT (runEitherT (runHandler h)) rd) initRes
+        (result, res) <- runStateT (runReaderT (runExceptT (runHandler h)) rd) initRes
         seshHdr <- saveSesh $ resSession res
         let hdrs = case seshHdr of
                       Nothing -> resHeaders res

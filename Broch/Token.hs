@@ -35,7 +35,7 @@ createJwtToken :: (MonadRandom m, ToJSON a)
     -> AlgPrefs
     -> a
     -> m (Either Jwt.JwtError Jwt.Jwt)
-createJwtToken sigKeys encKeys (AlgPrefs s e) claims = runEitherT $ do
+createJwtToken sigKeys encKeys (AlgPrefs s e) claims = runExceptT $ do
     let payload = Jwt.Claims cBytes
     signed <- case s of
         Nothing -> return payload
@@ -45,7 +45,7 @@ createJwtToken sigKeys encKeys (AlgPrefs s e) claims = runEitherT $ do
     case e of
         NotEncrypted -> case signed of
             Jwt.Nested jwt -> return jwt
-            Jwt.Claims _   -> left $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
+            Jwt.Claims _   -> throwE $ Jwt.BadAlgorithm "Can't create a JWT without signature or encryption algorithms"
         E alg enc    -> hoistEither =<< lift (Jwt.encode encKeys (Jwt.JweEncoding alg enc) signed)
   where
     cBytes = toStrict (encode claims)
@@ -60,7 +60,7 @@ createJwtAccessToken :: MonadRandom m
     -> [Scope]
     -> POSIXTime
     -> m (Either Jwt.JwtError (ByteString, Maybe ByteString, TokenTTL))
-createJwtAccessToken sigKeys encKeys prefs user client grantType scopes now = runEitherT $ do
+createJwtAccessToken sigKeys encKeys prefs user client grantType scopes now = runExceptT $ do
     Jwt.Jwt token  <- toJwt claims
     refreshToken   <- issueRefresh
     return (token, refreshToken, tokenTTL)

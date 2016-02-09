@@ -94,12 +94,12 @@ processTokenRequest :: (Applicative m, Monad m)
                     -> CreateIdToken m
                     -> DecodeRefreshToken m
                     -> m (Either TokenError AccessTokenResponse)
-processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runEitherT $ do
+processTokenRequest env client now getAuthorization authenticateResourceOwner createAccessToken createIdToken decodeRefreshToken = runExceptT $ do
     grantType <- getGrantType
     (!uid, !idt, !tokenGrantType, !grantedScope) <- case grantType of
         AuthorizationCode -> do
             code  <- requireParam "code"
-            authz <- lift (getAuthorization code) >>= maybe (left $ InvalidGrant "Invalid authorization code") return
+            authz <- lift (getAuthorization code) >>= maybe (throwE $ InvalidGrant "Invalid authorization code") return
             mURI  <- maybeParam "redirect_uri"
             validateAuthorization authz client now mURI
             let scp = authzScope authz
@@ -108,7 +108,7 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
                        then fmap Just $ lift $ createIdToken usr (authzAuthTime authz) client (authzNonce authz) now Nothing Nothing
                        else return Nothing
             idt' <- case idt of
-                Just (Left jwtErr) -> left $ InvalidRequest $ T.pack ("Failed to create id_token: " ++ show jwtErr)
+                Just (Left jwtErr) -> throwE $ InvalidRequest $ T.pack ("Failed to create id_token: " ++ show jwtErr)
                 Just (Right jwt)   -> return (Just jwt)
                 Nothing            -> return Nothing
 
@@ -124,20 +124,20 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
             s <- getResourceOwnerScope
             user <- lift $ authenticateResourceOwner username password
             case user of
-                Nothing -> left $ InvalidGrant "authentication failed"
+                Nothing -> throwE $ InvalidGrant "authentication failed"
                 _       -> return (user, Nothing, ResourceOwner, s)
 
         RefreshToken -> do
             rt <- requireParam "refresh_token"
-            AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken client rt) >>= maybe (left $ InvalidGrant "Invalid refresh token") return
+            AccessGrant mu cid gt' gs gexp <- lift (decodeRefreshToken client rt) >>= maybe (throwE $ InvalidGrant "Invalid refresh token") return
             scp <- getRefreshScope gs
             checkExpiry gexp
             if cid /= clientId client
-                then left $ InvalidGrant "Refresh token was issued to a different client"
+                then throwE $ InvalidGrant "Refresh token was issued to a different client"
                 else return (mu, Nothing, gt', scp)
 
-        Implicit  -> left $ InvalidGrant "Implicit grant is not supported by the token endpoint"
-        JwtBearer -> left UnsupportedGrantType
+        Implicit  -> throwE $ InvalidGrant "Implicit grant is not supported by the token endpoint"
+        JwtBearer -> throwE UnsupportedGrantType
 
     (!token, !refToken, !tokenTTL) <- lift (createAccessToken uid client tokenGrantType grantedScope now) >>= hoistEither . fmapL InternalError
 
@@ -151,30 +151,30 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
         }
 
   where
-    checkExpiry (IntDate t) = when (t < now) $ left $ InvalidGrant "Refresh token has expired"
+    checkExpiry (IntDate t) = when (t < now) $ throwE $ InvalidGrant "Refresh token has expired"
 
     getGrantType = do
         gt <- requireParam "grant_type"
         case lookup gt grantTypes of
-            Nothing -> left UnsupportedGrantType
+            Nothing -> throwE UnsupportedGrantType
             Just g  -> if g `elem` authorizedGrantTypes client
-                       then right g
-                       else left $ UnauthorizedClient $ T.append "Client is not authorized to use grant: " gt
+                       then return g
+                       else throwE $ UnauthorizedClient $ T.append "Client is not authorized to use grant: " gt
     getClientScope = do
         mScope <- getRequestedScope
-        either (left . InvalidScope) right $ I.checkClientScope client mScope
+        either (throwE . InvalidScope) return $ I.checkClientScope client mScope
 
     getResourceOwnerScope = getClientScope
 
     getRefreshScope existingScope = do
         mScope <- getRequestedScope
-        either (left . InvalidScope) right $ I.checkRequestedScope existingScope mScope
+        either (throwE . InvalidScope) return $ I.checkRequestedScope existingScope mScope
 
     getRequestedScope = maybeParam "scope" >>= \ms -> return $ fmap (map scopeFromName . T.splitOn " ") ms
 
     requireParam = eitherParam I.requireParam
     maybeParam   = eitherParam I.maybeParam
-    eitherParam  f n  = either (left . InvalidRequest) right $ f env n
+    eitherParam  f n  = either (throwE . InvalidRequest) return $ f env n
 
 
 validateAuthorization :: (Monad m)
@@ -182,13 +182,13 @@ validateAuthorization :: (Monad m)
                       -> Client
                       -> NominalDiffTime
                       -> Maybe Text
-                      -> EitherT TokenError m ()
+                      -> ExceptT TokenError m ()
 validateAuthorization (Authorization _ issuedTo (IntDate issuedAt) _ _ authzURI _) client now mURI
-    | mURI /= authzURI = left . InvalidGrant $ case mURI of
+    | mURI /= authzURI = throwE . InvalidGrant $ case mURI of
                                                   Nothing -> "Missing redirect_uri"
                                                   _       -> "Invalid redirect_uri"
-    | clientId client /= issuedTo    = left $ InvalidGrant "Code was issue to another client"
-    | now - issuedAt   > authCodeTTL = left $ InvalidGrant "Expired code"
+    | clientId client /= issuedTo    = throwE $ InvalidGrant "Code was issue to another client"
+    | now - issuedAt   > authCodeTTL = throwE $ InvalidGrant "Expired code"
     | otherwise = return ()
 
 authCodeTTL :: NominalDiffTime

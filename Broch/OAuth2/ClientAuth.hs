@@ -45,7 +45,7 @@ authenticateClient :: (Applicative m, MonadRandom m)
     -> POSIXTime
     -> LoadClient m
     -> m (Either ClientAuthError Client)
-authenticateClient env authzHeader now getClient = runEitherT $ do
+authenticateClient env authzHeader now getClient = runExceptT $ do
     clid      <- maybeParam "client_id"
     secret    <- maybeParam "client_secret"
     assertion <- maybeParam "client_assertion"
@@ -58,8 +58,8 @@ authenticateClient env authzHeader now getClient = runEitherT $ do
         (Nothing, Just cid, Just sec, Nothing, Nothing) -> noteT (InvalidClient "Secret verification failed") $ checkClientSecret cid sec
         (Nothing, _, Nothing, Just a, Just "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
                                                         -> fmapLT InvalidClient $ clientAssertionAuth a
-        (Nothing, _, Nothing, Nothing, Nothing)         -> left $ InvalidClient "No authentication information supplied"
-        _                                               -> left $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
+        (Nothing, _, Nothing, Nothing, Nothing)         -> throwE $ InvalidClient "No authentication information supplied"
+        _                                               -> throwE $ InvalidRequest "Multiple authentication credentials/mechanisms or malformed authentication data"
     checkClientId clid client
 
     return client
@@ -69,30 +69,30 @@ authenticateClient env authzHeader now getClient = runEitherT $ do
         (hdr, claims)   <- hoistEither $ fmapL showT $ decodeClaims (TE.encodeUtf8 a)
         alg <- case hdr of
             JwsH h     -> return (jwsAlg h)
-            JweH _     -> left "encrypted assertions are not yet supported"
-            UnsecuredH -> left "assertion cannot be an unsecured JWT"
+            JweH _     -> throwE "encrypted assertions are not yet supported"
+            UnsecuredH -> throwE "assertion cannot be an unsecured JWT"
         -- TODO: Check audience
-        unless (jwtIss claims == jwtSub claims) (left "assertion 'iss' and 'sub' are different")
+        unless (jwtIss claims == jwtSub claims) (throwE "assertion 'iss' and 'sub' are different")
         IntDate expiry  <- jwtExp claims ?? "'exp' must be provided in assertion"
-        unless (expiry > now) (left "assertion has expired")
+        unless (expiry > now) (throwE "assertion has expired")
         -- TODO: Introduce jti caching
         cid             <- jwtSub claims ?? "missing 'sub' claim in assertion"
         mClient         <- lift $ getClient cid
         client          <- mClient ?? "no such client"
         let authMethod = tokenEndpointAuthMethod client
         let authAlg    = tokenEndpointAuthAlg client
-        unless (isNothing authAlg || authAlg == Just alg) (left "assertion 'alg' does not match client registered algorithm")
+        unless (isNothing authAlg || authAlg == Just alg) (throwE "assertion 'alg' does not match client registered algorithm")
         let jwt        = TE.encodeUtf8 a
 
         case authMethod of
             ClientSecretJwt -> do
                 sec  <- clientSecret client ?? "client does not have a secret"
-                either (left . showT) (const $ return client) $ hmacDecode (TE.encodeUtf8 sec) jwt
+                either (throwE . showT) (const $ return client) $ hmacDecode (TE.encodeUtf8 sec) jwt
             PrivateKeyJwt   -> do
                 keys           <- clientKeys client ?? "client has no keys"
                 validOrInvalid <- lift $ decode keys (Just (JwsEncoding alg)) jwt
-                either (left . showT) (const $ return client) validOrInvalid
-            _               -> left "client is not registered to use assertion authentication"
+                either (throwE . showT) (const $ return client) validOrInvalid
+            _               -> throwE "client is not registered to use assertion authentication"
 
     basicAuth h    = do
         (cid, secret) <- hoistMaybe decodedHeader
@@ -120,6 +120,6 @@ authenticateClient env authzHeader now getClient = runEitherT $ do
 
     checkClientId cid client = case cid of
         Nothing -> return ()
-        Just c  -> unless (c == clientId client) $ left $ InvalidRequest "client_id parameter doesn't match authentication"
+        Just c  -> unless (c == clientId client) $ throwE $ InvalidRequest "client_id parameter doesn't match authentication"
 
-    maybeParam p = either (left . InvalidRequest) right $ I.maybeParam env p
+    maybeParam p = either (throwE . InvalidRequest) return $ I.maybeParam env p

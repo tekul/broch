@@ -99,7 +99,7 @@ processAuthorizationRequest :: (Monad m, Subject s)
     -- ^ The successful redirect URL which the front end should return to the client.
     -- If an error is returned, the front end's behaviour will depend on the
     -- specific error type as defined above.
-processAuthorizationRequest supportedResponseTypes getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runEitherT $ do
+processAuthorizationRequest supportedResponseTypes getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runExceptT $ do
     -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI
     let redirectURI = fromMaybe (defaultRedirectURI client) uri
@@ -107,7 +107,7 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
 
     -- Decode the request, and fail with a client redirect if invalid
     (state, responseType, requestedScope, nonce, maxAge) <- fmapLT errRedirect $ getAuthorizationRequest client
-    when (authRequired maxAge) $ left RequiresReauthentication
+    when (authRequired maxAge) $ throwE RequiresReauthentication
 
     scope <- lift $ resourceOwnerApproval user client requestedScope now
 
@@ -155,7 +155,7 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
         token <- lift $ createAccessToken (Just $ subjectId user) client Implicit scope now
         case token of
              Right (t, _, ttl) -> return (t, ttl)
-             Left _            -> left ServerError
+             Left _            -> throwE ServerError
 
     tokenParams (token, expires) =
         return [("access_token", token), ("token_type", "bearer"), ("expires_in", B.pack $ show (round expires :: Int))]
@@ -164,7 +164,7 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
         idt  <- lift $ createIdToken (subjectId user) (authTime user) client nonce now code accessToken
         idt' <- case idt of
             Right (Jwt jwt) -> return jwt
-            Left jwtErr     -> left (InvalidRequest $ T.pack ("Failed to create id_token " ++ show jwtErr))
+            Left jwtErr     -> throwE (InvalidRequest $ T.pack ("Failed to create id_token " ++ show jwtErr))
         return [("id_token", idt')]
 
     scopeParam scope = return $ case scope of
@@ -174,8 +174,8 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
     getAuthorizationRequest client = do
         state          <- maybeParam env "state" `failW` InvalidRequest
         responseType   <- hoistEither getResponseType
-        unless (responseType `elem` supportedResponseTypes) (left UnsupportedResponseType)
-        unless (checkResponseType client responseType) $ left UnauthorizedClient
+        unless (responseType `elem` supportedResponseTypes) (throwE UnsupportedResponseType)
+        unless (checkResponseType client responseType) $ throwE UnauthorizedClient
         maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` InvalidRequest
         nonce          <- maybeParam env "nonce" `failW` InvalidRequest
         maxAge         <- getMaxAge `failW` InvalidRequest
@@ -184,12 +184,12 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
 
         -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
         when (responseType == Token && isOpenID) $
-            left $ InvalidRequest "openid scope cannot be user with 'token' response type"
+            throwE $ InvalidRequest "openid scope cannot be user with 'token' response type"
         -- Implicit and Hybrid OpenID requests require a nonce
         -- http://openid.net/specs/openid-connect-core-1_0.html#ImplicitAuthRequest
         -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
         when (responseType /= Code  && isOpenID && isNothing nonce) $
-            left $ InvalidRequest "A nonce is required for this response type"
+            throwE $ InvalidRequest "A nonce is required for this response type"
 
         return (state, responseType, requestedScope, nonce, maxAge)
 
@@ -250,24 +250,23 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
     getClientAndRedirectURI = do
         cid    <- requireParam env "client_id" `failW` (MaliciousClient . InvalidClient)
         uri    <- maybeParam env "redirect_uri" `failW` (MaliciousClient . InvalidRedirectUri)
-        client <- maybe (left $ MaliciousClient $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
+        client <- maybe (throwE $ MaliciousClient $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
         validateRedirectURI client uri
-        right (client, uri)
+        return (client, uri)
       where
         -- Check the redirect_uri is registered for the client.
         -- If more than one is registered, the parameter must be supplied (see OAuth2 3.1.2.3).
         validateRedirectURI client Nothing = case redirectURIs client of
             [_] -> return ()
-            _   -> left $ MaliciousClient MissingRedirectUri
+            _   -> throwE $ MaliciousClient MissingRedirectUri
         validateRedirectURI client (Just uri)
-          | T.any (== '#') uri = left $ MaliciousClient FragmentInUri
-          | otherwise          = if uri `elem` redirectURIs client
-                                     then right ()
-                                     else left . MaliciousClient $ InvalidRedirectUri "redirect_uri is not registered for client"
+          | T.any (== '#') uri = throwE $ MaliciousClient FragmentInUri
+          | otherwise          = unless (uri `elem` redirectURIs client) $
+                                     throwE . MaliciousClient $ InvalidRedirectUri "redirect_uri is not registered for client"
 
-    failW :: Monad m => Either e1 a -> (e1 -> e2) -> EitherT e2 m a
+    failW :: Monad m => Either e1 a -> (e1 -> e2) -> ExceptT e2 m a
     failW (Right a) _ = return a
-    failW (Left m)  f = left $ f m
+    failW (Left m)  f = throwE $ f m
 
 errorURL :: Maybe Text -> AuthorizationError -> Text
 errorURL state authzError = TE.decodeUtf8 qs
