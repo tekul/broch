@@ -38,10 +38,4 @@ CREATE TABLE authz_approval (
     PRIMARY KEY (uid, client_id)
 );
 
--- CREATE TABLE user (
---     id text PRIMARY KEY,
---     username text NOT NULL UNIQUE CHECK (length(username > 0)),
---     scim text NOT NULL
--- );
-
 insert into oauth2_client values ('app', 'appsecret', '{"authorization_code"}', '{"http://localhost:8080/app"}', 3600, 7200, '{"openid"}', false, 'client_secret_basic', null, null, '[]');
