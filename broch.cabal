@@ -80,6 +80,7 @@ Executable broch
   Build-Depends:      broch
                     , base
                     , bytestring
+                    , cryptonite
                     , directory
                     , optparse-applicative
                     , monad-logger >= 0.3

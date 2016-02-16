@@ -4,7 +4,6 @@ module Broch.Persist where
 
 import           Control.Monad.State.Strict
 import qualified Crypto.KDF.BCrypt as BCrypt
-import           Data.Maybe (fromJust)
 import qualified Data.Text.Encoding as TE
 import           Database.Persist.Sql (ConnectionPool, runSqlPersistMPool)
 
@@ -31,7 +30,7 @@ persistBackend pool config =
         loadUserInfo uid _ = do
             scimUser <- (liftIO . runDB . BP.getUserById) uid
             -- Convert from SCIM... yuk
-            return $ scimUserToUserInfo (fromJust scimUser)
+            return $ fmap scimUserToUserInfo scimUser
 
     in  config
         { getClient = liftIO . runDB . BP.getClientById

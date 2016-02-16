@@ -201,8 +201,12 @@ brochServer config@Config {..} approvalPage authenticatedUser =
         -- TODO: Handle missing client situation
         Just client <- loadClient (granteeId g)
         userInfo    <- liftIO $ getUserInfo (fromJust (granterId g)) client
-        let claims  =  scopedClaims (grantScope g) userInfo
 
+        case userInfo of
+            Nothing -> status internalServerError500 >> text "User not found"
+            Just ui -> claimsResponse client $ scopedClaims (grantScope g) ui
+
+    claimsResponse client claims =
         case userInfoAlgs client of
             Nothing -> json claims
             Just (AlgPrefs Nothing NotEncrypted) -> json claims

@@ -2,6 +2,7 @@
 
 import Control.Exception hiding (Handler)
 import Control.Monad.Logger (runNoLoggingT)
+import Crypto.KDF.BCrypt (validatePassword)
 import Data.ByteString (ByteString)
 import Data.Pool
 import qualified Data.Text as T
@@ -88,7 +89,7 @@ postgresqlConfig issuer connStr = do
     rotateKeys kr True
     config <- postgreSQLBackend pool <$> inMemoryConfig issuer kr
     let baseRouter = brochServer config defaultApprovalPage authenticatedSubject
-        authenticate username password = return (if username == password then Just username else Nothing)
+        authenticate username password = passwordAuthenticate pool validatePassword username (TE.encodeUtf8 password)
         extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")
             , ("/login",  passwordLoginHandler defaultLoginPage authenticate)

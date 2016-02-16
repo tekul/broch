@@ -195,7 +195,7 @@ type LoadUserInfo m
     -- ^ The authenticated user whose data is being requested
     -> Client
     -- ^ The client to whom the user is being authenticated
-    -> m UserInfo
+    -> m (Maybe UserInfo)
     -- ^ The user info data
 
 data Authorization = Authorization

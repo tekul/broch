@@ -7,15 +7,19 @@ where
 import           Control.Monad (void)
 import           Control.Monad.IO.Class
 import           Data.Aeson
+import           Data.ByteString (ByteString)
 import           Data.Pool
 import           Data.Text (Text)
-import           Data.Text.Encoding (decodeUtf8)
+import qualified Data.Text as T
+import           Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import           Data.Time.Clock.POSIX
+import           Data.Time.Format
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.FromField
 import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.SqlQQ
 import           Database.PostgreSQL.Simple.Types
-import           Data.Time.Clock.POSIX
+import           Database.PostgreSQL.Simple.Time
 import           Jose.Jwa (JwsAlg(..))
 import           Jose.Jwt (IntDate (..))
 import           Jose.Jwk
@@ -32,6 +36,7 @@ postgreSQLBackend pool config = config
     , getAuthorization = liftIO . loadAndDeleteAuthorization pool
     , createApproval = liftIO . insertApproval pool
     , getApproval = \uid clnt now -> liftIO $ withResource pool (\conn -> loadApproval conn uid (clientId clnt) now)
+    , getUserInfo = \uid clnt -> liftIO (loadUserInfo pool uid clnt)
     }
 
 instance FromField ClientAuthMethod where
@@ -69,11 +74,36 @@ instance FromField AlgPrefs where
     fromField = fromJSONField
 
 instance FromRow Client where
-    fromRow = Client <$> field <*> field <*> fmap fromPGArray field <*> fmap fromPGArray field <*> field <*> field <*> fmap fromPGArray field <*> field <*> field <*> field <*> field <*> fieldWith fromJSONField <*> field <*> field <*> field
+    fromRow = Client <$> field <*> field <*> (fromPGArray <$> field) <*> fmap fromPGArray field <*> field <*> field <*> (fromPGArray <$> field) <*> field <*> field <*> field <*> field <*> fieldWith fromJSONField <*> field <*> field <*> field
+
+instance FromRow UserInfo where
+    fromRow = UserInfo <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> parseBirthDate <*> field <*> field <*> field <*> field <*> parseAddress <*> parseIntDate
+
+parseAddress :: RowParser (Maybe AddressClaims)
+parseAddress = do
+    r <- fromRow
+    return $ case r of
+        (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing) -> Nothing
+        (fmt, street, loc, reg, post, ctry) -> Just (AddressClaims fmt street loc reg post ctry)
+
 
 parseKeys :: RowParser (Maybe [Jwk])
 parseKeys = fieldWith fromJSONField
 
+parseBirthDate :: RowParser (Maybe Text)
+parseBirthDate = do
+    dt <- field :: RowParser Date
+    return $ case dt of
+        Finite d -> Just . T.pack $ formatTime defaultTimeLocale (iso8601DateFormat Nothing) d
+        _ -> Nothing
+
+parseIntDate :: RowParser (Maybe IntDate)
+parseIntDate = do
+    t <- field
+    return $ case t of
+        Finite utc -> let intTime = utcTimeToPOSIXSeconds utc
+                       in Just (IntDate intTime)
+        _ -> Nothing
 
 insertAuthorization :: M.Subject s
     => Pool Connection
@@ -172,3 +202,23 @@ loadClient pool cid = withResource pool $ \conn -> do
     case cs of
         [c] -> return (Just c)
         _   -> return Nothing
+
+loadUserInfo :: Pool Connection -> LoadUserInfo IO
+loadUserInfo pool uid _ = withResource pool $ \conn -> do
+    us <- query conn [sql|
+        SELECT * FROM user_info WHERE id=? |] [uid]
+    case us of
+        [u] -> return (Just u)
+        _   -> return Nothing
+
+passwordAuthenticate :: Pool Connection -> (ByteString -> ByteString -> Bool) -> Text -> ByteString -> IO (Maybe SubjectId)
+passwordAuthenticate pool validatePwd username password = withResource pool $ \conn -> do
+    us <- query conn [sql|
+        SELECT id, password
+        FROM op_user
+        WHERE username = ? |] [username]
+    return $ case us of
+       [(uid, encodedPwd)] -> if validatePwd password (encodeUtf8 encodedPwd)
+                                  then Just uid
+                                  else Nothing
+       _ -> Nothing
