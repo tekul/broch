@@ -38,4 +38,4 @@ CREATE TABLE user_info (
 CREATE EXTENSION pgcrypto;
 
 INSERT INTO op_user VALUES ('1234_cat_id', 'cat', crypt('cat', gen_salt('bf')), NULL);
-INSERT INTO user_info VALUES ('1234_cat_id', 'Catherine De Feline', 'Catherine', 'De Feline', NULL, 'Cat', 'cat', NULL, NULL, NULL, 'cat@connect.broch.io', FALSE, 'female', '1985-7-23', NULL, NULL, NULL, FALSE, '25 Cat Street, PussyVille, PV5 2DD, UK', '25 Cat Street', 'PussyVille', NULL, 'PV5 2DD', 'UK');
+Insert INTO user_info VALUES ('1234_cat_id', 'Catherine De Feline', 'Catherine', 'De Feline', 'Kitty', 'Cat', 'cat', 'http://placeholder', 'http://placeholder', 'http://placeholder', 'cat@connect.broch.io', FALSE, 'female', '1985-7-23', 'Europe/Paris', 'fr-FR', '+33 12 34 56 78', FALSE, '25 Cat Street, PussyVille, 1234567, Felineshire, France', '25 Cat Street', 'PussyVille', 'Felineshire', '1234567', 'FR');

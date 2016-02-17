@@ -48,6 +48,11 @@ scopedClaims scopes user
         , profile     = profile user
         , picture     = picture user
         , website     = website user
+        , gender      = gender user
+        , birthdate   = birthdate user
+        , zoneinfo    = zoneinfo user
+        , locale      = locale user
+        , updated_at  = updated_at user
         }
 
     emailClaims   u = u { email        = email user, email_verified = email_verified user }
