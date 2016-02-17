@@ -13,7 +13,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B
 import qualified Data.HashMap.Strict as HM
 import           Data.Int (Int64)
-import           Data.List (intersect)
+import           Data.List (intersect, (\\))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromJust)
 import           Data.Text (Text)
@@ -230,10 +230,13 @@ brochServer config@Config {..} approvalPage authenticatedUser =
             clntId    <- postParam "client_id"
             expiryTxt <- postParam "expiry"
             scpParams <- liftM (Map.lookup "scope") postParams
+            requested <- liftM (Map.lookup "requested_scope") postParams
 
             let Right (expiry, _) = decimal expiryTxt
-                scope    = maybe [] (map scopeFromName) scpParams
-                approval = Approval uid clntId scope (IntDate $ fromIntegral (expiry :: Int64))
+                approvedScope  = maybe [] (map scopeFromName) scpParams
+                requestedScope = maybe [] (map scopeFromName) requested
+                deniedScope    = requestedScope \\ approvedScope
+                approval = Approval uid clntId approvedScope deniedScope (IntDate $ fromIntegral (expiry :: Int64))
             _ <- liftIO $ createApproval approval
             l <- getCachedLocation "/uhoh"
             clearCachedLocation
@@ -262,18 +265,23 @@ brochServer config@Config {..} approvalPage authenticatedUser =
         resourceOwnerApproval :: Subject s => s -> Broch.Model.Client -> [Scope] -> POSIXTime -> Handler [Scope]
         resourceOwnerApproval u client requestedScope now = do
             -- Try to load a previous approval
-
             maybeApproval <- liftIO $ getApproval (subjectId u) client now
 
-            case maybeApproval of
-                -- TODO: Check scope overlap and allow asking for extra scope
-                -- not previously granted
-                Just (Approval _ _ scope _) -> return $ scope `intersect` requestedScope
-                -- Nothing exists: Redirect to approval handler with scopes and client id
-                Nothing -> do
+            let redirectToApprovalsPage = do
                     let query = renderSimpleQuery True [("client_id", TE.encodeUtf8 $ clientId client), ("scope", TE.encodeUtf8 $ formatScope requestedScope)]
                     cacheLocation
                     redirect $ B.concat ["/approval", query]
+
+            case maybeApproval of
+                Just (Approval _ _ scope denied _) -> do
+                    -- Check if enough scope was approved in previous request
+                    -- or if the extra was previously denied. If so, only return
+                    -- the previously approved scope.
+                    let overlap = (scope ++ denied) `intersect` requestedScope
+                    if overlap == requestedScope
+                        then return scope
+                        else redirectToApprovalsPage
+                Nothing -> redirectToApprovalsPage
 
     tokenHandler = do
         r <- request

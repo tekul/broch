@@ -129,27 +129,27 @@ loadAndDeleteAuthorization pool code = withResource pool $ \conn -> do
         _ -> Nothing
 
 insertApproval :: Pool Connection -> M.Approval -> IO ()
-insertApproval pool (M.Approval uid cid scope (IntDate expires)) = withResource pool $ \conn ->
+insertApproval pool (M.Approval uid cid scope denied (IntDate expires)) = withResource pool $ \conn ->
     void $ execute conn [sql|
-        INSERT INTO authz_approval (uid, client_id, scope, expires_at)
-        VALUES (?,?,?,?)
-        ON CONFLICT (uid, client_id) DO UPDATE SET scope = EXCLUDED.scope, expires_at = EXCLUDED.expires_at
+        INSERT INTO authz_approval (uid, client_id, scope, denied_scope, expires_at)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT (uid, client_id) DO UPDATE SET scope = EXCLUDED.scope, denied_scope = EXCLUDED.denied_scope, expires_at = EXCLUDED.expires_at
         |]
-        (uid, cid, PGArray (map M.scopeName scope), posixSecondsToUTCTime expires)
+        (uid, cid, PGArray (map M.scopeName scope), PGArray (map M.scopeName denied), posixSecondsToUTCTime expires)
 
 loadApproval :: Connection -> SubjectId -> ClientId -> POSIXTime -> IO (Maybe Approval)
 loadApproval conn uid cid now = do
     as <- query conn [sql|
-        SELECT scope, expires_at
+        SELECT scope, denied_scope, expires_at
         FROM authz_approval
         WHERE uid = ? AND client_id = ? AND expires_at > ?
         ORDER BY expires_at DESC |]
         (uid, cid, posixSecondsToUTCTime now)
-    return $ case removeExpired as of
-        [(PGArray scope, expires)] -> Just (Approval uid cid (map scopeFromName scope) (IntDate (utcTimeToPOSIXSeconds expires)))
+    return $ case filter notExpired as of
+        [(PGArray scope, PGArray denied, expires)] -> Just (Approval uid cid (map scopeFromName scope) (map scopeFromName denied) (IntDate (utcTimeToPOSIXSeconds expires)))
         _ -> Nothing
   where
-    removeExpired = filter ((> posixSecondsToUTCTime now) . snd)
+    notExpired (_, _, t) = t > posixSecondsToUTCTime now
 
 deleteApproval :: Connection -> SubjectId -> ClientId -> IO ()
 deleteApproval conn uid cid =

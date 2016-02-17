@@ -54,6 +54,7 @@ Approval sql=authz_approval
   uid      Text
   clientId Text
   scope    [Text]
+  deniedScope [Text]
   expiresAt UTCTime
   UniqueApproval uid clientId
   deriving Show
@@ -113,8 +114,8 @@ getAuthorizationByCode code = do
 createApproval :: (MonadIO m, Functor m)
                => M.Approval
                -> ReaderT SqlBackend m ()
-createApproval (M.Approval uid clientId scope (IntDate expires)) =
-    void $ insert $ Approval uid clientId (map M.scopeName scope) (posixSecondsToUTCTime expires)
+createApproval (M.Approval uid clientId scope denied (IntDate expires)) =
+    void $ insert $ Approval uid clientId (map M.scopeName scope) (map M.scopeName denied) (posixSecondsToUTCTime expires)
 
 getApproval :: (MonadIO m)
             => Text
@@ -125,11 +126,11 @@ getApproval uid cid now = do
     record <- getBy $ UniqueApproval uid cid
     case record of
         Nothing -> return Nothing
-        Just (Entity key (Approval _ _ scope expiry)) -> do
+        Just (Entity key (Approval _ _ scope denied expiry)) -> do
             let posixExpiry = utcTimeToPOSIXSeconds expiry
             if now > posixExpiry
                 then delete key >> return Nothing
-                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (IntDate posixExpiry)
+                else return $ Just $ M.Approval uid cid (map M.scopeFromName scope) (map M.scopeFromName denied) (IntDate posixExpiry)
 
 deleteApproval :: (MonadIO m)
                => Text

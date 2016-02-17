@@ -105,7 +105,7 @@ tokenRequest cid secret redirectUri gt code = do
     basicAuth cid secret
     post "/oauth/token" [("client_id", cid), ("grant_type", grantTypeName gt), ("redirect_uri", redirectUri), ("code", code)]
     withResponse $ \r -> case decode $ simpleBody r of
-        Nothing  -> liftIO $ print r >> (fail $ "Failed to JSON decode response body")
+        Nothing  -> liftIO $ print r >> fail "Failed to JSON decode response body"
         Just atr -> return atr
 
 testapp = do
@@ -126,11 +126,13 @@ approveIfRequired = withResponse $ \r ->
             cid   <- getLocationParam "client_id"
             followRedirect
             -- TODO: Check we're on the approvals page
-            now <- liftIO $ getPOSIXTime
+            now <- liftIO getPOSIXTime
             let expiry = round $ now + posixDayLength :: Int64
-            post "/approval" [("client_id", cid), ("expiry", T.pack $ show expiry), ("scope", scope)]
+            post "/approval" ([("client_id", cid), ("expiry", T.pack $ show expiry)] ++ scopeParams (T.split (== ' ') scope))
             followRedirect
-
+  where
+    scopeParams [] = []
+    scopeParams (s:ss) = ("requested_scope", s) : ("scope", s) : scopeParams ss
 
 loginIfRequired username password = withOptionalRedirect "/login" $ login username password >> followRedirect
 

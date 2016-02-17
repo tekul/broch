@@ -38,6 +38,8 @@ approvalPage client scopes now = docTypeHtml $ html $ do
         h2 "Authorization Approval Request"
         H.form ! method "post" ! action "/approval" $ do
             input ! type_ "hidden" ! name "client_id" ! value (toValue (clientId client))
+            forM_ scopes $ \s ->
+                input ! type_ "hidden" ! name "requested_scope" ! value (toValue (scopeName s))
             H.label ! for "expiry" $ "Expires after"
             select ! name "expiry" $ do
                 option ! value (toValue oneDay) ! selected "" $ "One day"

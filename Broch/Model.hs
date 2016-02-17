@@ -220,6 +220,7 @@ data Approval = Approval
     { approverId      :: SubjectId
     , approvedClient  :: ClientId
     , approvedScope   :: [Scope]
+    , deniedScope     :: [Scope]
     , approvalExpiry  :: IntDate
     } deriving (Show)
 

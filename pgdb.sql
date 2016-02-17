@@ -34,6 +34,7 @@ CREATE TABLE authz_approval (
     uid text,
     client_id text REFERENCES oauth2_client,
     scope text[] NOT NULL,
+    denied_scope text[] NOT NULL,
     expires_at timestamptz NOT NULL,
     PRIMARY KEY (uid, client_id)
 );
