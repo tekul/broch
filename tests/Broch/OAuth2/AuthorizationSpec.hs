@@ -23,7 +23,7 @@ instance Subject TestUser where
 
 allowedResponseTypes = [Code, Token, CodeToken]
 
-doAuthz env = runIdentity $ processAuthorizationRequest allowedResponseTypes getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken (TU "cat") env now
+doAuthz env = runIdentity $ processAuthorizationRequest allowedResponseTypes getClient gc createAuthorization resourceOwnerApproval createAccessToken createIdToken (return $ Just $ TU "cat") env now
 
 gc = return "acode"
 

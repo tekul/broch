@@ -76,17 +76,21 @@ passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
                 redirect =<< getCachedLocation "/home"
     _    -> methodNotAllowed
 
-authenticatedSubject :: Handler Usr
+authenticatedSubject :: Handler (Maybe Usr)
 authenticatedSubject = do
     usr <- sessionLookup userIdKey
-    case usr of
-        Just u  -> return (read $ T.unpack $ TE.decodeUtf8 u :: Usr)
-        Nothing -> cacheLocation >> redirect "/login"
+    return (fmap unpackUsr usr)
+  where
+    unpackUsr = read . T.unpack . TE.decodeUtf8
+
+
+authenticateSubject :: Handler ()
+authenticateSubject = cacheLocation >> redirect "/login"
 
 brochServer :: (Subject s)
     => Config IO s
     -> (Client -> [Scope] -> Int64 -> Html)
-    -> Handler s
+    -> Handler (Maybe s)
     -> RoutingTree (Handler ())
 brochServer config@Config {..} approvalPage authenticatedUser =
     foldl (\tree (r, h) -> addToRoutingTree r h tree) emptyRoutingTree
@@ -217,22 +221,21 @@ brochServer config@Config {..} approvalPage authenticatedUser =
                     Right (Jwt jwt) -> setHeader hContentType "application/jwt" >> rawBytes (BL.fromStrict jwt)
                     Left  e         -> status internalServerError500 >> text (T.pack ("Failed to create user info JWT" ++ show e))
 
-    approvalHandler = httpMethod >>= \m -> case m of
+    approvalHandler = withAuthenticatedUser authenticatedUser $ \s -> httpMethod >>= \m -> case m of
         GET -> do
-            _      <- authenticatedUser
             now    <- liftIO getPOSIXTime
             Just client <- queryParam "client_id" >>= loadClient
             scope  <- liftM (map scopeFromName . T.splitOn " ") (queryParam "scope")
             html $ approvalPage client scope (round now)
 
         POST -> do
-            uid       <- subjectId <$> authenticatedUser
             clntId    <- postParam "client_id"
             expiryTxt <- postParam "expiry"
             scpParams <- liftM (Map.lookup "scope") postParams
             requested <- liftM (Map.lookup "requested_scope") postParams
 
             let Right (expiry, _) = decimal expiryTxt
+                uid = subjectId s
                 approvedScope  = maybe [] (map scopeFromName) scpParams
                 requestedScope = maybe [] (map scopeFromName) requested
                 deniedScope    = requestedScope \\ approvedScope
@@ -247,17 +250,16 @@ brochServer config@Config {..} approvalPage authenticatedUser =
 
     authorizationHandler = do
         -- request >>= debug . W.rawQueryString
-
-        user <- authenticatedUser
         env  <- queryParams
+
         now  <- liftIO getPOSIXTime
 
-        response <- processAuthorizationRequest responseTypesSupported loadClient generateCode createAuthz resourceOwnerApproval createAccess createIdToken user env now
+        response <- processAuthorizationRequest responseTypesSupported loadClient generateCode createAuthz resourceOwnerApproval createAccess createIdToken authenticatedUser env now
         case response of
             Right url                      -> redirectExternal $ TE.encodeUtf8 url
             Left (MaliciousClient e)       -> evilClientError e
             Left (ClientRedirectError url) -> redirectExternal $ TE.encodeUtf8 url
-            Left RequiresReauthentication  -> cacheLocation >> redirect "/login"
+            Left RequiresAuthentication  -> cacheLocation >> redirect "/login"
 
       where
         evilClientError e = status badRequest400 >> text (T.pack $ show e)
@@ -317,6 +319,16 @@ cacheLocation = request >>= \r -> sessionInsert "_loc" $ B.concat [W.rawPathInfo
 getCachedLocation :: ByteString -> Handler ByteString
 getCachedLocation defaultUrl = liftM (fromMaybe defaultUrl) $ sessionLookup "_loc"
 
+
+withAuthenticatedUser :: (Subject s)
+    => Handler (Maybe s)
+    -> (s -> Handler ())
+    -> Handler ()
+withAuthenticatedUser currentUser f = do
+    user <- currentUser
+    case user of
+        Nothing -> status forbidden403 >> text "Unauthorized"
+        Just u  -> f u
 
 withBearerToken :: (B.ByteString -> IO (Maybe AccessGrant))
                 -> [Scope]

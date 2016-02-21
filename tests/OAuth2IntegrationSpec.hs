@@ -52,14 +52,7 @@ authzErrorSpec run =
 
         it "Returns unauthorized_client if the response_type is not allowed for client" $ run $ do
             sendAuthzRequest "admin" "http://admin" [] Token []
-            -- Redirect to the login page
-            followRedirect
-            statusIs 200
-            login "cat" "cat"
-            -- Redirected to the original request
-            followRedirect
             statusIs 302 >> getLocationParam "error" >>= assertEqual "expected error=unauthorized_client" "unauthorized_client"
-
 
 
 badClientSpec run =
@@ -67,12 +60,6 @@ badClientSpec run =
 
         it "returns a non-redirect error if redirect_uri is wrong" $ run $ do
             sendAuthzRequest "app" "http://notapp" [] Code []
-            -- Redirect to the login page
-            followRedirect
-            statusIs 200
-            login "cat" "cat"
-            -- Redirected to the original request
-            followRedirect
             statusIs 400
 
 data AuthzResponse = AuthzResponse

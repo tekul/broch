@@ -37,11 +37,11 @@ data AuthorizationRequestError
     -- but reported to the user instead. Typically an invalid
     -- redirect_uri.
     = MaliciousClient EvilClientError
-    -- | The user needs to be authenticated again.
+    -- | The user needs to be authenticated (again).
     -- Occurs, for example, when the OpenID client uses the @max_age@
     -- request parameter to indicate that the user must have been
     -- authenticated within a particular time window.
-    | RequiresReauthentication -- TODO add requested type (popup etc)
+    | RequiresAuthentication -- TODO add requested type (popup etc)
     -- | The request has an error which should be reported to
     -- the client via a redirect.
     | ClientRedirectError Text deriving (Show, Eq)
@@ -57,7 +57,7 @@ data EvilClientError
     deriving (Show, Eq)
 
 -- | Authorization errors which will be reported to the client via a redirect.
--- See the OAuth2 spec for more information.
+-- See the OAuth2 and OpenID Connect specs for more information.
 data AuthorizationError
     = InvalidRequest Text
     | UnauthorizedClient
@@ -66,9 +66,17 @@ data AuthorizationError
     | InvalidScope Text
     | ServerError
     | Unavailable
+    | LoginRequired
 
 type GenerateCode m = m ByteString
 type ResourceOwnerApproval m s = s -> Client -> [Scope] -> POSIXTime -> m [Scope]
+
+data Prompt
+    = None
+    | Login
+    | Consent
+    | SelectAccount
+    deriving (Show, Eq)
 
 processAuthorizationRequest :: (Monad m, Subject s)
     => [ResponseType]
@@ -88,9 +96,8 @@ processAuthorizationRequest :: (Monad m, Subject s)
     -> CreateIdToken m
     -- ^ Creates the ID token which will be returned with the authorization
     -- response for the relevant OpenID connect requests.
-    -> s
-    -- ^ The currently authenticated user. The front end should authenticate the user
-    -- before calling this function.
+    -> m (Maybe s)
+    -- ^ The currently authenticated user, if available.
     -> Map.Map Text [Text]
     -- ^ The authorization request parameters.
     -> POSIXTime
@@ -99,31 +106,39 @@ processAuthorizationRequest :: (Monad m, Subject s)
     -- ^ The successful redirect URL which the front end should return to the client.
     -- If an error is returned, the front end's behaviour will depend on the
     -- specific error type as defined above.
-processAuthorizationRequest supportedResponseTypes getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken user env now = runExceptT $ do
+processAuthorizationRequest supportedResponseTypes getClient genCode createAuthorization resourceOwnerApproval createAccessToken createIdToken currentUser env now = runExceptT $ do
     -- Potential for a malicious client error
     (client, uri) <- getClientAndRedirectURI
     let redirectURI = fromMaybe (defaultRedirectURI client) uri
         errRedirect = errorRedirector redirectURI
 
     -- Decode the request, and fail with a client redirect if invalid
-    (state, responseType, requestedScope, nonce, maxAge) <- fmapLT errRedirect $ getAuthorizationRequest client
-    when (authRequired maxAge) $ throwE RequiresReauthentication
+    (state, responseType, requestedScope, nonce, maxAge, prompt) <- fmapLT errRedirect $ getAuthorizationRequest client
 
+    -- Deal with (Re)authentication as necessary or raise
+    -- the appropriate error if the prompt parameter won't allow it.
+    user <- authenticatedUser prompt maxAge errRedirect
     scope <- lift $ resourceOwnerApproval user client requestedScope now
 
     -- Create the successful response redirect (unless id_token creation fails)
-    responseParams <- fmapLT errRedirect $ authorizationResponse responseType client scope nonce uri
+    responseParams <- fmapLT errRedirect $ authorizationResponse responseType user client scope nonce uri
     let qs = TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
 
     return $ buildRedirect redirectURI (separator responseType) qs
   where
-    authRequired Nothing       = False
-    authRequired (Just maxAge) = now - authTime user > fromIntegral maxAge
+    authenticatedUser prompt maxAge errRedirect = do
+        mUser <- lift currentUser
+        let t0 = maybe now fromIntegral maxAge
+        case mUser of
+            Nothing -> throwE $ if None `elem` prompt then errRedirect LoginRequired else RequiresAuthentication
+            Just u  -> if Login `elem` prompt || (now - authTime u > t0)
+                          then throwE RequiresAuthentication
+                          else return u
 
-    authorizationResponse responseType client scope nonce uri = do
-        let codeResponse    = doCode client scope nonce uri
-            tokenResponse   = tokenParams =<< doAccessToken client scope
-            idTokenResponse = doIdToken client nonce
+    authorizationResponse responseType user client scope nonce uri = do
+        let codeResponse    = doCode
+            tokenResponse   = tokenParams =<< doAccessToken
+            idTokenResponse = doIdToken
 
         case responseType of
             Code             -> liftM2 (:) (codeParam =<< codeResponse) $ scopeParam scope
@@ -133,39 +148,39 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
             -- The remaining hybrid responses need changes to the id_token
             -- http://openid.net/specs/openid-connect-core-1_0.html#HybridIDToken
             TokenIdToken     -> do
-                te@(t, _) <- doAccessToken client scope
+                te@(t, _) <- doAccessToken
                 liftM2 (++) (tokenParams te) $ idTokenResponse Nothing (Just t)
             CodeIdToken      -> do
                 code      <- codeResponse
                 liftM2 (:) (codeParam code) $ idTokenResponse (Just code) Nothing
             CodeTokenIdToken -> do
                 code      <- codeResponse
-                te@(t, _) <- doAccessToken client scope
+                te@(t, _) <- doAccessToken
                 liftM2 (:) (codeParam code) $ liftM2 (++) (tokenParams te)
                     $ idTokenResponse (Just code) (Just t)
+      where
+        doCode = do
+            code <- lift genCode
+            lift $ createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
+            return code
 
-    doCode client scope nonce uri = do
-        code <- lift genCode
-        lift $ createAuthorization (TE.decodeUtf8 code) user client now scope nonce uri
-        return code
+        codeParam code = return ("code", code)
 
-    codeParam code = return ("code", code)
+        doAccessToken = do
+            token <- lift $ createAccessToken (Just $ subjectId user) client Implicit scope now
+            case token of
+                Right (t, _, ttl) -> return (t, ttl)
+                Left _            -> throwE ServerError
 
-    doAccessToken client scope = do
-        token <- lift $ createAccessToken (Just $ subjectId user) client Implicit scope now
-        case token of
-             Right (t, _, ttl) -> return (t, ttl)
-             Left _            -> throwE ServerError
+        tokenParams (token, expires) =
+            return [("access_token", token), ("token_type", "bearer"), ("expires_in", B.pack $ show (round expires :: Int))]
 
-    tokenParams (token, expires) =
-        return [("access_token", token), ("token_type", "bearer"), ("expires_in", B.pack $ show (round expires :: Int))]
-
-    doIdToken client nonce code accessToken = do
-        idt  <- lift $ createIdToken (subjectId user) (authTime user) client nonce now code accessToken
-        idt' <- case idt of
-            Right (Jwt jwt) -> return jwt
-            Left jwtErr     -> throwE (InvalidRequest $ T.pack ("Failed to create id_token " ++ show jwtErr))
-        return [("id_token", idt')]
+        doIdToken code accessToken = do
+            idt  <- lift $ createIdToken (subjectId user) (authTime user) client nonce now code accessToken
+            idt' <- case idt of
+                Right (Jwt jwt) -> return jwt
+                Left jwtErr     -> throwE (InvalidRequest $ T.pack ("Failed to create id_token " ++ show jwtErr))
+            return [("id_token", idt')]
 
     scopeParam scope = return $ case scope of
         [] -> []
@@ -178,8 +193,10 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
         unless (checkResponseType client responseType) $ throwE UnauthorizedClient
         maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` InvalidRequest
         nonce          <- maybeParam env "nonce" `failW` InvalidRequest
+        -- TODO: Validate that maxAge is a reasonable time period
         maxAge         <- getMaxAge `failW` InvalidRequest
         requestedScope <- checkScope client maybeScope `failW` InvalidRequest
+        prompt         <- getPrompt `failW` InvalidRequest
         let isOpenID   = OpenID `elem` requestedScope
 
         -- http://openid.net/specs/openid-connect-core-1_0.html#Authentication
@@ -191,7 +208,23 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
         when (responseType /= Code  && isOpenID && isNothing nonce) $
             throwE $ InvalidRequest "A nonce is required for this response type"
 
-        return (state, responseType, requestedScope, nonce, maxAge)
+        return (state, responseType, requestedScope, nonce, maxAge, prompt)
+
+    getPrompt = do
+        promptParam <- maybeParam env "prompt"
+        case promptParam of
+            Nothing -> return []
+            Just p  -> do
+                ps <- mapM mkPrompt (T.split (== ' ') p)
+                when (None `elem` ps && Login `elem` ps) (Left "promt cannot include both 'none' and 'login'")
+                return ps
+      where
+        mkPrompt p = case p of
+            "none"  -> return None
+            "login" -> return Login
+            "consent" -> return Consent
+            "select-account" -> return SelectAccount
+            x -> Left (T.concat ["Unrecognise 'prompt' value: ", x])
 
     errorRedirector :: Text -> AuthorizationError -> AuthorizationRequestError
     errorRedirector redirectBase e =
@@ -281,6 +314,7 @@ errorURL state authzError = TE.decodeUtf8 qs
         InvalidScope d        -> ("invalid_scope", Just $ TE.encodeUtf8 d)
         ServerError           -> ("server_error", Nothing)
         Unavailable           -> ("temporarily_unavailable", Nothing)
+        LoginRequired         -> ("login_required", Nothing)
 
 addStateParam :: Maybe Text -> [SimpleQueryItem] -> [SimpleQueryItem]
 addStateParam state ps = maybe ps (\s -> ("state", TE.encodeUtf8 s) : ps) state
