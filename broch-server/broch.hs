@@ -88,7 +88,7 @@ postgresqlConfig issuer connStr = do
     kr <- defaultKeyRing
     rotateKeys kr True
     config <- postgreSQLBackend pool <$> inMemoryConfig issuer kr
-    let baseRouter = brochServer config defaultApprovalPage authenticatedSubject
+    let baseRouter = brochServer config defaultApprovalPage authenticatedSubject authenticateSubject
         authenticate username password = passwordAuthenticate pool validatePassword username (TE.encodeUtf8 password)
         extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")
