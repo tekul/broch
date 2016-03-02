@@ -4,6 +4,7 @@ module Broch.Server.BlazeUI where
 
 import           Control.Monad (forM_)
 import           Data.Int (Int64)
+import           Data.Text (Text)
 import           Data.Time.Clock.POSIX
 
 import           Text.Blaze.Html5 as H
@@ -11,15 +12,18 @@ import           Text.Blaze.Html5.Attributes as A hiding (scope)
 
 import Broch.Model (Scope, scopeName, Client (..))
 
-loginPage :: Html
-loginPage = html $ do
+loginPage :: Maybe Text -> Html
+loginPage requestId = html $ do
     H.head $ do
         H.title "Login"
         link ! rel "stylesheet" ! href "css/login.css"
     body $ do
         H.div ! class_ "logo" $ ""
         H.div ! class_ "loginform cf" $
-            H.form ! method "post" ! action "/login" ! acceptCharset "utf-8" $
+            H.form ! method "post" ! action "/login" ! acceptCharset "utf-8" $ do
+                case requestId of
+                    Just rid -> input ! type_ "hidden" ! name "_rid" ! value (textValue rid)
+                    Nothing  -> return ()
                 ul $ do
                     li $ do
                         H.label ! for "username" $ "Username"

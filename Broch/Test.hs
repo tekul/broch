@@ -22,7 +22,7 @@ import           Broch.Model
 import           Broch.Persist (persistBackend)
 import qualified Broch.Persist.Internal as BP
 import           Broch.Scim
-import           Broch.Server (brochServer, defaultLoginPage,  defaultApprovalPage, authenticatedSubject, passwordLoginHandler)
+import           Broch.Server (brochServer, defaultLoginPage,  defaultApprovalPage, authenticatedSubject, authenticateSubject, passwordLoginHandler)
 import           Broch.Server.Internal
 import           Broch.Server.Config
 
@@ -59,7 +59,7 @@ testBroch issuer pool = do
             , ("/login",  passwordLoginHandler defaultLoginPage (authenticateResourceOwner config))
             , ("/logout", invalidateSession >> complete)
             ]
-        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer testConfig defaultApprovalPage authenticatedSubject) extraRoutes
+        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer testConfig defaultApprovalPage authenticatedSubject authenticateSubject) extraRoutes
     return routingTable
   where
     createUser scimData = do

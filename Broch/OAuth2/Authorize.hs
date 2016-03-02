@@ -96,8 +96,9 @@ processAuthorizationRequest :: (Monad m, Subject s)
     -> CreateIdToken m
     -- ^ Creates the ID token which will be returned with the authorization
     -- response for the relevant OpenID connect requests.
-    -> m (Maybe s)
-    -- ^ The currently authenticated user, if available.
+    -> m (Maybe (s, Bool))
+    -- ^ The currently authenticated user, if available, and whether they were
+    -- authenticated during the current request.
     -> Map.Map Text [Text]
     -- ^ The authorization request parameters.
     -> POSIXTime
@@ -129,11 +130,13 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
     authenticatedUser prompt maxAge errRedirect = do
         mUser <- lift currentUser
         let t0 = maybe now fromIntegral maxAge
+            loginRequired = Login `elem` prompt
         case mUser of
-            Nothing -> throwE $ if None `elem` prompt then errRedirect LoginRequired else RequiresAuthentication
-            Just u  -> if Login `elem` prompt || (now - authTime u > t0)
+            Just (u, loggedInThisReq) -> if (loginRequired && not loggedInThisReq)
+                                            || (now - authTime u > t0)
                           then throwE RequiresAuthentication
                           else return u
+            _ -> throwE $ if None `elem` prompt then errRedirect LoginRequired else RequiresAuthentication
 
     authorizationResponse responseType user client scope nonce uri = do
         let codeResponse    = doCode
@@ -216,7 +219,7 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
             Nothing -> return []
             Just p  -> do
                 ps <- mapM mkPrompt (T.split (== ' ') p)
-                when (None `elem` ps && Login `elem` ps) (Left "promt cannot include both 'none' and 'login'")
+                when (None `elem` ps && Login `elem` ps) (Left "prompt cannot include both 'none' and 'login'")
                 return ps
       where
         mkPrompt p = case p of

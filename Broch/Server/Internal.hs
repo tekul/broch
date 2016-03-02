@@ -7,6 +7,8 @@ module Broch.Server.Internal
     , queryParams
     , postParam
     , queryParam
+    , maybeQueryParam
+    , maybePostParam
     , httpMethod
     , requireMethod
     , request
@@ -157,6 +159,18 @@ postParam name = postParams >>= lookupParam name
 
 queryParam :: Text -> Handler Text
 queryParam name = queryParams >>= lookupParam name
+
+maybeQueryParam :: Text -> Handler (Maybe Text)
+maybeQueryParam name = queryParams >>= maybeParam name
+
+maybePostParam :: Text -> Handler (Maybe Text)
+maybePostParam name = postParams >>= maybeParam name
+
+maybeParam :: Text -> Params -> Handler (Maybe Text)
+maybeParam name ps = case M.lookup name ps of
+    Just [v] -> return (Just v)
+    Nothing  -> return Nothing
+    _        -> throwError $ HandlerError $ B.concat ["Duplicate parameter", TE.encodeUtf8 name]
 
 lookupParam :: Text -> Params -> Handler Text
 lookupParam name params = case M.lookup name params of

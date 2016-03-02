@@ -54,45 +54,73 @@ instance Subject Usr where
 userIdKey :: ByteString
 userIdKey = "_uid"
 
-defaultLoginPage :: Html
+requestIdKey :: Text
+requestIdKey = "_rid"
+
+defaultLoginPage :: Maybe Text -> Html
 defaultLoginPage = UI.loginPage
 
 defaultApprovalPage :: Client -> [Scope] -> Int64 -> Html
 defaultApprovalPage = UI.approvalPage
 
-passwordLoginHandler :: Html -> AuthenticateResourceOwner IO -> Handler ()
+passwordLoginHandler :: (Maybe Text -> Html) -> AuthenticateResourceOwner IO -> Handler ()
 passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
-    GET  -> html loginPage
+    GET  -> do
+        rid <- maybeQueryParam requestIdKey
+        html (loginPage rid)
     POST -> do
         uid  <- postParam "username"
         pwd  <- postParam "password"
+        rid  <- fmap TE.encodeUtf8 <$> maybePostParam requestIdKey
         user <- liftIO $ authenticate uid pwd
 
         case user of
-            Nothing -> redirect "/login"
+            Nothing -> redirect $ maybe "login" (\r -> B.concat ["login?_rid=", r]) rid
             Just u  -> do
                 now <- liftIO getCurrentTime
                 sessionInsert userIdKey (B.pack $ show $ Usr u now)
+                maybe (return ()) (sessionInsert (TE.encodeUtf8 requestIdKey)) rid
                 redirect =<< getCachedLocation "/home"
     _    -> methodNotAllowed
 
-authenticatedSubject :: Handler (Maybe Usr)
+-- | Returns the current user and whether they were authenticated during the current authorization request.
+-- In order to satisfy the "prompt=login" situation, the request is tagged with a random parameter which is also
+-- passed as a parameter to the login URL and rendered in the login page. When logging in successfully, the
+-- tag (if present) is stored in the session.
+--
+-- When this function is called, and the session contains a user, the current request can be checked to
+-- see if it contains a parameter with the same name as the request ID cached in the session. If it does, the
+-- current request has the same ID as the one which prompted the login and @True@ is returned as the second
+-- parameter in the tuple.
+authenticatedSubject :: Handler (Maybe (Usr, Bool))
 authenticatedSubject = do
-    usr <- sessionLookup userIdKey
-    return (fmap unpackUsr usr)
+    usr  <- sessionLookup userIdKey
+    rid1 <- sessionLookup (TE.encodeUtf8 requestIdKey)
+    rid2 <- case rid1 of
+        Nothing -> return Nothing
+        Just r  -> maybeQueryParam (TE.decodeUtf8 r)
+    return $ case usr of
+        Nothing -> Nothing
+        Just u  -> Just (unpackUsr u, isJust rid2)
   where
     unpackUsr = read . T.unpack . TE.decodeUtf8
 
-
 authenticateSubject :: Handler ()
-authenticateSubject = cacheLocation >> redirect "/login"
+authenticateSubject = do
+    bs <- getRandomBytes 8 :: Handler ByteString
+    let tag = convertToBase Base64URLUnpadded bs
+    location <- request >>= \r -> return $ B.concat [W.rawPathInfo r, W.rawQueryString r, "&", tag, "="]
+    cacheLocationUrl location
+    sessionDelete userIdKey
+    redirect $ B.concat ["/login?_rid=", tag]
 
 brochServer :: (Subject s)
     => Config IO s
     -> (Client -> [Scope] -> Int64 -> Html)
-    -> Handler (Maybe s)
+    -> Handler (Maybe (s, Bool))
+    -> Handler ()
     -> RoutingTree (Handler ())
-brochServer config@Config {..} approvalPage authenticatedUser =
+brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
     foldl (\tree (r, h) -> addToRoutingTree r h tree) emptyRoutingTree
         [ ("/oauth/authorize",  authorizationHandler)
         , ("/oauth/token",      tokenHandler)
@@ -259,7 +287,7 @@ brochServer config@Config {..} approvalPage authenticatedUser =
             Right url                      -> redirectExternal $ TE.encodeUtf8 url
             Left (MaliciousClient e)       -> evilClientError e
             Left (ClientRedirectError url) -> redirectExternal $ TE.encodeUtf8 url
-            Left RequiresAuthentication  -> cacheLocation >> redirect "/login"
+            Left RequiresAuthentication    -> authenticateUser
 
       where
         evilClientError e = status badRequest400 >> text (T.pack $ show e)
@@ -313,22 +341,28 @@ generateCode = do
 clearCachedLocation :: Handler ()
 clearCachedLocation = sessionDelete "_loc"
 
+-- | Cache the current request URL
 cacheLocation :: Handler ()
-cacheLocation = request >>= \r -> sessionInsert "_loc" $ B.concat [W.rawPathInfo r, W.rawQueryString r]
+cacheLocation = request >>= \r -> cacheLocationUrl $ B.concat [W.rawPathInfo r, W.rawQueryString r]
 
+-- | Cache an explicit URL
+cacheLocationUrl :: ByteString -> Handler ()
+cacheLocationUrl = sessionInsert "_loc"
+
+-- | Retrieve the currently cached location, providing a default URL for use if none is found.
 getCachedLocation :: ByteString -> Handler ByteString
 getCachedLocation defaultUrl = liftM (fromMaybe defaultUrl) $ sessionLookup "_loc"
 
 
 withAuthenticatedUser :: (Subject s)
-    => Handler (Maybe s)
+    => Handler (Maybe (s, Bool))
     -> (s -> Handler ())
     -> Handler ()
 withAuthenticatedUser currentUser f = do
     user <- currentUser
     case user of
         Nothing -> status forbidden403 >> text "Unauthorized"
-        Just u  -> f u
+        Just (u, _) -> f u
 
 withBearerToken :: (B.ByteString -> IO (Maybe AccessGrant))
                 -> [Scope]
