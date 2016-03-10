@@ -103,6 +103,7 @@ makeClient OpenIDConfiguration {..} cid csec ClientMetaData {..} = do
         , idTokenAlgs             = idAlgs
         , userInfoAlgs            = infoAlgs
         , requestObjAlgs          = reqObjAlgs
+        , sectorIdentifierURI     = sector_identifier_uri
         }
   where
     checkRedirectURIs []     = Right ()

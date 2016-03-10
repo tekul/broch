@@ -16,7 +16,8 @@ CREATE TABLE oauth2_client (
     keys jsonb,
     id_token_algs jsonb,
     user_info_algs jsonb,
-    request_obj_algs jsonb
+    request_obj_algs jsonb,
+    sector_identifier_uri text
 );
 
 CREATE TABLE authz_code (

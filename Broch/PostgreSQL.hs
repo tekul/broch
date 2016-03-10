@@ -74,7 +74,7 @@ instance FromField AlgPrefs where
     fromField = fromJSONField
 
 instance FromRow Client where
-    fromRow = Client <$> field <*> field <*> (fromPGArray <$> field) <*> fmap fromPGArray field <*> field <*> field <*> (fromPGArray <$> field) <*> field <*> field <*> field <*> field <*> fieldWith fromJSONField <*> field <*> field <*> field
+    fromRow = Client <$> field <*> field <*> (fromPGArray <$> field) <*> fmap fromPGArray field <*> field <*> field <*> (fromPGArray <$> field) <*> field <*> field <*> field <*> field <*> fieldWith fromJSONField <*> field <*> field <*> field <*> field
 
 instance FromRow UserInfo where
     fromRow = UserInfo <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> parseBirthDate <*> field <*> field <*> field <*> field <*> parseAddress <*> parseIntDate
@@ -188,15 +188,14 @@ lookupJwsAlg nm = case nm of
 insertClient :: Pool Connection -> Client -> IO ()
 insertClient pool Client{..} = withResource pool $ \conn ->
     void $ execute conn [sql|
-        INSERT INTO oauth2_client (id, secret, redirect_uri, allowed_scope, authorized_grant_types, access_token_validity, refresh_token_validity, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) |]
-        ((clientId, clientSecret, PGArray redirectURIs, PGArray (map scopeName allowedScope), PGArray (map grantTypeName authorizedGrantTypes), accessTokenValidity, refreshTokenValidity, clientAuthMethodName tokenEndpointAuthMethod, fmap jwsAlgName tokenEndpointAuthAlg, clientKeysUri) :. (fmap toJSON clientKeys, fmap toJSON idTokenAlgs, fmap toJSON userInfoAlgs, fmap toJSON requestObjAlgs))
-
+        INSERT INTO oauth2_client (id, secret, redirect_uri, allowed_scope, authorized_grant_types, access_token_validity, refresh_token_validity, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs, sector_identifier_uri)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) |]
+        ((clientId, clientSecret, PGArray redirectURIs, PGArray (map scopeName allowedScope), PGArray (map grantTypeName authorizedGrantTypes), accessTokenValidity, refreshTokenValidity, clientAuthMethodName tokenEndpointAuthMethod, fmap jwsAlgName tokenEndpointAuthAlg, clientKeysUri) :. (fmap toJSON clientKeys, fmap toJSON idTokenAlgs, fmap toJSON userInfoAlgs, fmap toJSON requestObjAlgs, sectorIdentifierURI))
 
 loadClient :: Pool Connection -> ClientId -> IO (Maybe Client)
 loadClient pool cid = withResource pool $ \conn -> do
     cs <- query conn [sql|
-        SELECT id, secret, authorized_grant_types, redirect_uri, access_token_validity, refresh_token_validity, allowed_scope, auto_approve, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs
+        SELECT id, secret, authorized_grant_types, redirect_uri, access_token_validity, refresh_token_validity, allowed_scope, auto_approve, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs, sector_identifier_uri
         FROM oauth2_client
         WHERE id = ? |] [cid]
     case cs of
