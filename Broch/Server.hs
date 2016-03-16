@@ -28,7 +28,7 @@ import           Jose.Jwa
 import           Jose.Jwt (Jwt(..), IntDate(..))
 import           Network.HTTP.Types
 import qualified Network.Wai as W
-import           Network.HTTP.Conduit (simpleHttp)
+import           Network.HTTP.Conduit (httpLbs, newManager, managerConnCount, redirectCount, tlsManagerSettings, parseUrl, responseBody)
 import           Text.Blaze.Html (Html)
 import           Web.Routing.TextRouting
 
@@ -174,19 +174,22 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
         sigKeys <- liftIO (signingKeys keyRing)
         createJwtToken (maybe sigKeys (: sigKeys) csKey) rpKeys prefs claims
 
+
     registerClient c = do
         cid <- generateCode
         sec <- generateCode
+        -- TODO: Avoid creating new mgr each call
+        mgr <- newManager tlsManagerSettings { managerConnCount = 1 }
         let retrieveJwks :: Text -> ExceptT RegistrationError IO [Jwk]
             retrieveJwks uri = do
-                jsn <- httpGet (T.unpack uri)
+                jsn <- httpGet uri
                 let jwkError s = T.pack ("Failed to decode retrieved client JWKs: " ++ s)
                 either (throwE . InvalidMetaData . jwkError) (return . keys) (eitherDecode' jsn)
 
             checkSectorIdentifierUri =
                 case sector_identifier_uri c of
                     Just uri -> do
-                        jsn <- httpGet (T.unpack uri)
+                        jsn <- httpGet uri
                         let uriError s = T.pack ("Failed to decode sector_identifier_uri contents: " ++ s)
                         ruris <- either (throwE . InvalidMetaData . uriError) return (eitherDecode' jsn :: Either String [Text])
                         unless (foldl (\acc u -> acc && u `elem` ruris) True (redirect_uris c))
@@ -194,10 +197,11 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
 
                     Nothing  -> return ()
 
-            -- TODO: Better HTTP client code. No redirect following
-            httpGet uri = ExceptT . liftIO $ (Right <$> simpleHttp uri)
+            httpGet uri = ExceptT $ do
+                req <- parseUrl (T.unpack uri)
+                Right . responseBody <$> httpLbs req { redirectCount = 0 } mgr
                 `catch` \(e :: SomeException) -> do
-                    let errMsg = T.pack ("Failed to retrieve URI '" ++ uri ++ "': " ++ show e)
+                    let errMsg = T.concat ["Failed to retrieve URI '", uri, "': ", T.pack (show e)]
                     TIO.putStrLn errMsg
                     return $ Left (InvalidMetaData errMsg)
 
