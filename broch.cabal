@@ -41,9 +41,8 @@ Library
   Other-Modules:      Broch.Scim
                     , Broch.Server.BlazeUI
   Build-Depends:      base >= 4 && < 5
-                    , time
+                    , aeson >= 0.8.1.0
                     , errors >= 2
-                    , mtl >= 2.1.3.1
                     , blaze-builder >= 0.3
                     , blaze-html >= 0.7
                     , bytestring >= 0.10
@@ -51,20 +50,21 @@ Library
                     , containers >= 0.4
                     , cookie     >= 0.4
                     , cryptonite >= 0.8
-                    , jose-jwt   >= 0.7
-                    , memory     >= 0.10
-                    , network-uri > 2.6
                     , data-default-generics >= 0.3
                     , directory
-                    , http-conduit >= 2.1
+                    , http-conduit > 2
                     , http-types >= 0.8
-                    , aeson >= 0.8.1.0
-                    , text  >= 0.11
+                    , jose-jwt   >= 0.7
+                    , memory     >= 0.10
+                    , mtl >= 2.1.3.1
+                    , network-uri > 2.6
                     , persistent >= 2.1 && < 3
                     , persistent-template >= 2.1 && < 3
                     , postgresql-simple >= 0.5.1
                     , reroute >= 0.2.3
                     , resource-pool > 0.2.3
+                    , text  >= 0.11
+                    , time
                     , transformers >= 0.3
                     , unordered-containers >= 0.2
                     , uuid >= 1.3
@@ -104,26 +104,26 @@ Test-suite tests
                     , OAuth2IntegrationSpec
                     , OICIntegrationSpec
   Build-depends:      broch
-                    , jose-jwt
-                    , aeson-qq > 0.7
                     , base
+                    , aeson
+                    , aeson-qq > 0.7
                     , blaze-builder >= 0.3
+                    , bytestring
                     , containers
                     , cookie
-                    , time
-                    , bytestring
                     , cryptonite
                     , http-types
+                    , hspec >= 1.6
+                    , HUnit >= 1.2 && < 2
+                    , jose-jwt
                     , memory
                     , mtl
                     , monad-logger
                     , network-uri
                     , persistent-sqlite >= 2.1 && < 3
                     , text
+                    , time
                     , transformers
-                    , aeson
-                    , hspec >= 1.6
-                    , HUnit >= 1.2 && < 2
                     , unordered-containers
                     , wai
                     , wai-extra >= 3.0.0.1
