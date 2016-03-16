@@ -17,7 +17,7 @@ CREATE TABLE oauth2_client (
     id_token_algs jsonb,
     user_info_algs jsonb,
     request_obj_algs jsonb,
-    sector_identifier_uri text
+    sector_identifier text NOT NULL
 );
 
 CREATE TABLE authz_code (
@@ -40,4 +40,4 @@ CREATE TABLE authz_approval (
     PRIMARY KEY (uid, client_id)
 );
 
-insert into oauth2_client values ('app', 'appsecret', '{"authorization_code"}', '{"http://localhost:8080/app"}', 3600, 7200, '{"openid"}', false, 'client_secret_basic', null, null, '[]');
+insert into oauth2_client values ('app', 'appsecret', '{"authorization_code"}', '{"http://localhost:8080/app"}', 3600, 7200, '{"openid","profile","address","email"}', false, 'client_secret_basic', null, null, '[]', null, null, null, 'localhost');

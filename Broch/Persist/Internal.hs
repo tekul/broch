@@ -75,7 +75,7 @@ Client sql=oauth2_client
   idTokenAlgs    Text Maybe
   userInfoAlgs   Text Maybe
   requestObjAlgs Text Maybe
-  sectorIdentifierURI Text Maybe
+  sectorIdentifier Text
   UniqueClientId clientId
   deriving Show
 
@@ -142,9 +142,9 @@ deleteApproval uid cid = deleteBy $ UniqueApproval uid cid
 createClient :: (MonadIO m, Functor m)
              => M.Client
              -> ReaderT SqlBackend m ()
-createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg kuri ks idtAlgs uiAlgs roAlgs sectorUri) =
+createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg kuri ks idtAlgs uiAlgs roAlgs sectorId) =
     let ec a = fmap (TE.decodeUtf8 . toStrict . encode) a
-    in  void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg) kuri (ec ks) (ec idtAlgs) (ec uiAlgs) (ec roAlgs) sectorUri
+    in  void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg) kuri (ec ks) (ec idtAlgs) (ec uiAlgs) (ec roAlgs) sectorId
 
 getClientById :: (MonadIO m)
               => Text
@@ -153,7 +153,7 @@ getClientById cid = do
     record <- getBy $ UniqueClientId cid
     case record of
         Nothing -> return Nothing
-        Just (Entity _ (Client _ ms gs uris atv rtv scps appr am aalg kuri ks idtAlgs uiAlgs roAlgs sectorUri)) -> do
+        Just (Entity _ (Client _ ms gs uris atv rtv scps appr am aalg kuri ks idtAlgs uiAlgs roAlgs sectorId)) -> do
             let grants     = Prelude.map (\g -> fromJust $ lookup g M.grantTypes) gs
                 authMethod = fromText am
                 authAlg    = fmap fromText aalg
@@ -162,7 +162,7 @@ getClientById cid = do
                 uiAlgs'    = TE.encodeUtf8 <$> uiAlgs >>= decodeStrict
                 roAlgs'    = TE.encodeUtf8 <$> roAlgs >>= decodeStrict
 
-            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg kuri ks' idtAlgs' uiAlgs' roAlgs' sectorUri
+            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg kuri ks' idtAlgs' uiAlgs' roAlgs' sectorId
 
 createUser :: (MonadIO m, Functor m)
            => Text

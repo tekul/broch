@@ -316,7 +316,7 @@ data Client = Client
     , idTokenAlgs    :: Maybe AlgPrefs
     , userInfoAlgs   :: Maybe AlgPrefs
     , requestObjAlgs :: Maybe AlgPrefs
-    , sectorIdentifierURI :: Maybe Text
+    , sectorIdentifier :: Text
     } deriving (Generic, Show)
 
 instance Default Client
