@@ -1,4 +1,5 @@
 *.swp
+.stack-work/
 dist/
 pgdata/
 *.aes
