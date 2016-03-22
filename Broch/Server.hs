@@ -75,7 +75,7 @@ passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
         user <- liftIO $ authenticate uid pwd
 
         case user of
-            Nothing -> redirect $ maybe "login" (\r -> B.concat ["login?_rid=", r]) rid
+            Nothing -> redirect $ maybe "/login" (\r -> B.concat ["/login?_rid=", r]) rid
             Just u  -> do
                 now <- liftIO getCurrentTime
                 sessionInsert userIdKey (B.pack $ show $ Usr u now)
