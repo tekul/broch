@@ -5,6 +5,7 @@ import Control.Monad.Logger (runNoLoggingT)
 import Crypto.KDF.BCrypt (validatePassword)
 import Data.ByteString (ByteString)
 import Data.Pool
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.Persist.Sqlite (createSqlitePool)
@@ -14,6 +15,7 @@ import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Handler.Warp
 import Options.Applicative
 import System.Directory
+import System.Environment (getEnvironment)
 import System.IO.Error
 import Web.Routing.TextRouting
 
@@ -45,32 +47,38 @@ backEndOption = option auto
 textOption :: Mod OptionFields String -> Parser T.Text
 textOption x = T.pack <$> strOption x
 
-parser :: Parser BrochOpts
-parser = BrochOpts
+parser :: String -> String -> Int -> String -> Parser BrochOpts
+parser issuer db port webroot = BrochOpts
     <$> textOption
         ( long "issuer"
        <> help "The OP's issuer URL"
        <> metavar "ISSUER"
-       <> value "http://localhost:3000")
+       <> value issuer)
     <*> option auto
         ( long "port"
        <> metavar "PORT"
-       <> value 3000
+       <> value port
        <> help "The port to listen on")
     <*> textOption
         ( long "connection-string"
        <> help "The postgresql connection string"
        <> metavar "DATABASE"
-       <> value "dbname=broch")
+       <> value db)
     <*> strOption
         ( long "web-root"
        <> help "The directory from which to server static content"
        <> metavar "WEBROOT"
-       <> value "webroot")
+       <> value webroot)
     <*> backEndOption
 
 main :: IO ()
-main = execParser (info parser mempty) >>= runWithOptions
+main = do
+    env <- getEnvironment
+    let issuer  = fromMaybe "http://localhost:3000" $ lookup "ISSUER" env
+        port    = maybe 3000 read                   $ lookup "PORT" env
+        db      = fromMaybe "dbname=broch"          $ lookup "DATABASE" env
+        webroot = fromMaybe "webroot"               $ lookup "WEBROOT" env
+    execParser (info (parser issuer db port webroot) mempty) >>= runWithOptions
 
 runWithOptions :: BrochOpts -> IO ()
 runWithOptions BrochOpts {..} = do

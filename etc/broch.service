@@ -1,0 +1,25 @@
+# Broch systemd unit file
+# 
+# cp broch.service /etc/systemd/system/broch.service
+# systemctl daemon-reload
+# systemctl start broch.service
+# systemctl status broch.service
+#
+# To enable by default on boot:
+#
+# systemctl enable broch.service
+
+[Unit]
+Description=Broch OpenID Connect Server
+After=network.target postgresql.service
+
+[Service]
+ExecStart=/usr/bin/broch --issuer=https://connect.broch.io --connection-string='dbname=broch user=broch password=xxx host=localhost'
+WorkingDirectory=/home/broch
+User=broch
+EnvironmentFile=/home/broch/broch.env
+UMask=0066
+
+[Install]
+WantedBy=multi-user.target
+
