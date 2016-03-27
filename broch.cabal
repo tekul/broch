@@ -81,6 +81,7 @@ Executable broch
                     , bytestring
                     , cryptonite
                     , directory
+                    , memory
                     , monad-logger >= 0.3
                     , optparse-applicative
                     , persistent-sqlite

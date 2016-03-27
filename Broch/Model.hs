@@ -26,6 +26,11 @@ type Nonce    = Text
 -- | The unique identifier assigned to a user (typically a UUID).
 type SubjectId = Text
 
+-- | The sector identifier for a client.
+-- Used to map subject identifiers to a different unique set on a per-client
+-- basis, to avoid sharing of user data between different clients.
+type SectorIdentifier = Text
+
 -- | Represents an authenticated user.
 class Subject s where
     subjectId :: s -> SubjectId

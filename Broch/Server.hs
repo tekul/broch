@@ -166,7 +166,7 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
     oidConfig = mkOpenIDConfiguration config
 
     createIdToken uid aTime client nons now code aToken = do
-        let claims  = idTokenClaims issuerUrl client nons uid aTime now code aToken
+        let claims  = idTokenClaims issuerUrl client nons (sectorSubjectId uid (sectorIdentifier client)) aTime now code aToken
             rpKeys  = fromMaybe [] (clientKeys client)
             csKey   = fmap (\k -> SymmetricJwk (TE.encodeUtf8 k) Nothing Nothing Nothing) (clientSecret client)
             prefs   = fromMaybe (AlgPrefs (Just RS256) NotEncrypted) $ idTokenAlgs client

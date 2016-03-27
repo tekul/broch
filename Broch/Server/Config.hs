@@ -73,6 +73,7 @@ data Config m s = Config
     , decodeAccessToken          :: DecodeAccessToken m
     , decodeRefreshToken         :: DecodeRefreshToken m
     , getUserInfo                :: LoadUserInfo m
+    , sectorSubjectId            :: SubjectId -> SectorIdentifier -> SubjectId
     }
 
 data KeyRing m = KeyRing
@@ -190,7 +191,7 @@ inMemoryConfig issuer kr = do
             return grant
 
     return Config
-        { issuerUrl  = issuer
+        { issuerUrl = issuer
         , keyRing = kr
         , responseTypesSupported = [Code]
         , algorithmsSupported = defSupportedAlgorithms
@@ -221,4 +222,5 @@ inMemoryConfig issuer kr = do
         , decodeAccessToken = decodeToken
         , decodeRefreshToken = \_ token -> decodeToken (TE.encodeUtf8 token)
         , getUserInfo = error "getUserInfo has not been set"
+        , sectorSubjectId = \uid _ -> uid
         }
