@@ -4,7 +4,6 @@ import Control.Exception hiding (Handler)
 import Control.Monad (msum, when)
 import Control.Monad.Logger (runNoLoggingT)
 import Crypto.KDF.BCrypt (validatePassword)
-import Crypto.Hash
 import qualified Data.ByteArray.Encoding as BE
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
@@ -24,7 +23,6 @@ import System.Exit (die)
 import System.IO.Error
 import Web.Routing.TextRouting
 
-import Broch.Model (SubjectId, SectorIdentifier)
 import Broch.PostgreSQL
 import Broch.Server
 import Broch.Server.Config
@@ -97,12 +95,6 @@ decodeSalt (Just s) = case bs of
   where
     bs = let b = BC.pack s in msum [BE.convertFromBase BE.Base64 b, BE.convertFromBase BE.Base16 b]
 
-mkSubjectId :: (Maybe ByteString) -> SubjectId -> SectorIdentifier -> SubjectId
-mkSubjectId Nothing     uid _   = uid
-mkSubjectId (Just salt) uid sid =
-    let h = hash (BC.concat [TE.encodeUtf8 sid, TE.encodeUtf8 uid, salt]) :: Digest SHA256
-     in TE.decodeUtf8 $ BE.convertToBase BE.Base64URLUnpadded h
-
 runWithOptions :: BrochOpts -> Maybe ByteString -> IO ()
 runWithOptions BrochOpts {..} sidSalt = do
     sessionKey <- defaultKey
@@ -118,9 +110,8 @@ postgresqlConfig issuer connStr sidSalt = do
     pool <- createPool createConn close 1 60 20
     kr <- defaultKeyRing
     rotateKeys kr True
-    c <- postgreSQLBackend pool <$> inMemoryConfig issuer kr
-    let config = c { sectorSubjectId = mkSubjectId sidSalt }
-        baseRouter = brochServer config defaultApprovalPage authenticatedSubject authenticateSubject
+    config <- postgreSQLBackend pool <$> inMemoryConfig issuer kr sidSalt
+    let baseRouter = brochServer config defaultApprovalPage authenticatedSubject authenticateSubject
         authenticate username password = passwordAuthenticate pool validatePassword username (TE.encodeUtf8 password)
         extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")

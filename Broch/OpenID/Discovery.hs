@@ -67,7 +67,7 @@ mkOpenIDConfiguration Config {..} = OpenIDConfiguration
     , scopes_supported       = ["openid", "profile", "email", "address", "phone"]
     , response_types_supported = responseTypesSupported
     , acr_values_supported  = Nothing
-    , subject_types_supported = ["public"]
+    , subject_types_supported = if sectorSubjectId "test" "client.com" == "test" then ["public"] else ["pairwise"]
     , id_token_signing_alg_values_supported = idTokenSigningAlgs algorithmsSupported
     , id_token_encryption_alg_values_supported = idTokenEncryptionAlgs algorithmsSupported
     , id_token_encryption_enc_values_supported = idTokenEncryptionEncs algorithmsSupported

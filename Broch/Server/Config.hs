@@ -6,8 +6,10 @@ import           Control.Concurrent.MVar
 import           Control.Error
 import           Control.Monad (when)
 import           Control.Monad.IO.Class
+import           Crypto.Hash
 import           Crypto.Random (withDRG, getSystemDRG)
 import qualified Data.Aeson as A
+import qualified Data.ByteArray.Encoding as BE
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as Map
@@ -178,8 +180,11 @@ inMemoryConfig :: (MonadIO m, Subject s)
     => Text
     -- ^ The issuer (the external URL used to access your server)
     -> KeyRing m
+    -> Maybe B.ByteString
+    -- ^ A salt value used to calculate pairwise subject identifiers
+    -- if required
     -> IO (Config m s)
-inMemoryConfig issuer kr = do
+inMemoryConfig issuer kr subSalt = do
     clients        <- newMVar Map.empty
     authorizations <- newMVar Map.empty
     approvals      <- newMVar Map.empty
@@ -222,5 +227,11 @@ inMemoryConfig issuer kr = do
         , decodeAccessToken = decodeToken
         , decodeRefreshToken = \_ token -> decodeToken (TE.encodeUtf8 token)
         , getUserInfo = error "getUserInfo has not been set"
-        , sectorSubjectId = \uid _ -> uid
+        , sectorSubjectId = mkSubjectId subSalt
         }
+
+mkSubjectId :: (Maybe B.ByteString) -> SubjectId -> SectorIdentifier -> SubjectId
+mkSubjectId Nothing     uid _   = uid
+mkSubjectId (Just salt) uid sid =
+    let h = hash (B.concat [TE.encodeUtf8 sid, TE.encodeUtf8 uid, salt]) :: Digest SHA256
+     in TE.decodeUtf8 $ BE.convertToBase BE.Base64URLUnpadded h

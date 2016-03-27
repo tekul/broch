@@ -51,7 +51,7 @@ testBroch issuer pool = do
     mapM_ createUser testUsers
     kr <- defaultKeyRing
     rotateKeys kr True
-    config <- persistBackend pool <$> inMemoryConfig issuer kr
+    config <- persistBackend pool <$> inMemoryConfig issuer kr Nothing
     -- Allow everything for test options
     let testConfig = config { responseTypesSupported = map snd responseTypes }
         extraRoutes =
