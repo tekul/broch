@@ -82,9 +82,9 @@ main = do
         port    = maybe 3000 read                   $ lookup "PORT" env
         db      = fromMaybe "dbname=broch"          $ lookup "DATABASE" env
         webroot = fromMaybe "webroot"               $ lookup "WEBROOT" env
-    sidSalt <- decodeSalt $ lookup "SECTOR_ID_SALT" env
+    sidSalt <- decodeSalt $ lookup "SUBJECT_ID_SALT" env
     opts <- execParser (info (parser issuer db port webroot) mempty)
-    when (isNothing sidSalt) $ putStrLn "Subject identifiers will be shared between clients. Set SECTOR_ID_SALT to use pairwise identifiers)"
+    when (isNothing sidSalt) $ putStrLn "Subject identifiers will be shared between clients. Set SUBJECT_ID_SALT to use pairwise identifiers)"
     runWithOptions opts sidSalt
 
 decodeSalt :: Maybe String -> IO (Maybe ByteString)
