@@ -70,7 +70,7 @@ parser issuer db port webroot = BrochOpts
        <> value db)
     <*> strOption
         ( long "web-root"
-       <> help "The directory from which to server static content"
+       <> help "The directory from which to serve static content"
        <> metavar "WEBROOT"
        <> value webroot)
     <*> backEndOption
@@ -82,8 +82,9 @@ main = do
         port    = maybe 3000 read                   $ lookup "PORT" env
         db      = fromMaybe "dbname=broch"          $ lookup "DATABASE" env
         webroot = fromMaybe "webroot"               $ lookup "WEBROOT" env
+        desc    = fullDesc <> progDesc "Run a standalone OpenID Connect server"
     sidSalt <- decodeSalt $ lookup "SUBJECT_ID_SALT" env
-    opts <- execParser (info (parser issuer db port webroot) mempty)
+    opts <- execParser (info (helper <*> parser issuer db port webroot) desc)
     when (isNothing sidSalt) $ putStrLn "Subject identifiers will be shared between clients. Set SUBJECT_ID_SALT to use pairwise identifiers)"
     runWithOptions opts sidSalt
 
