@@ -5,7 +5,7 @@ module WaiTest where
 
 import qualified Blaze.ByteString.Builder as Builder
 import Control.Arrow (second)
-import Control.Monad (liftM, when, unless)
+import Control.Monad (when, unless)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
 import Data.Aeson (encode, Result(..), fromJSON, eitherDecode', FromJSON, ToJSON)
@@ -124,7 +124,7 @@ getLocationParams = do
 
 getLocationURI :: WaiTest URI
 getLocationURI = do
-    l <- liftM B.unpack getLocationHeader
+    l <- fmap B.unpack getLocationHeader
     case parseURIReference l of
         Nothing -> fail $ "Invalid redirect URI: " ++ l
         Just r  -> return r

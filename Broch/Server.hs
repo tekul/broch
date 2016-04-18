@@ -58,13 +58,23 @@ userIdKey = "_uid"
 requestIdKey :: Text
 requestIdKey = "_rid"
 
+-- | Renders a login page using the built-in UI.
 defaultLoginPage :: Maybe Text -> Html
 defaultLoginPage = UI.loginPage
 
+-- | Renders an approval page using the built-in web UI.
 defaultApprovalPage :: Client -> [Scope] -> Int64 -> Html
 defaultApprovalPage = UI.approvalPage
 
-passwordLoginHandler :: (Maybe Text -> Html) -> AuthenticateResourceOwner IO -> Handler ()
+-- | Standard handler for login GET and POST.
+-- A GET request will render the login page, a POST will attempt to authenticate
+-- the user with the supplied username and password information.
+passwordLoginHandler
+    :: (Maybe Text -> Html)
+    -- ^ A function which renders the login page
+    -> AuthenticateResourceOwner IO
+    -- ^ The function to process an authentication request
+    -> Handler ()
 passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
     GET  -> do
         rid <- maybeQueryParam requestIdKey
@@ -115,6 +125,9 @@ authenticateSubject = do
     sessionDelete userIdKey
     redirect $ B.concat ["/login?_rid=", tag]
 
+-- | Creates the server routing table from a configuration.
+--
+-- This is where everything is plugged in to build the
 brochServer :: (Subject s)
     => Config IO s
     -> (Client -> [Scope] -> Int64 -> Html)
@@ -132,32 +145,6 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
         , (".well-known/jwks",  liftIO (publicKeys keyRing) >>= json . JwkSet )
         ]
   where
-{--
-
-        -- SCIM API
-
-        post   "/Users" $ do
-            -- parse JSON request to SCIM user
-            -- store user
-            -- create meta and etag
-            -- re-read user and return
-            b <- body
-            case eitherDecode b of
-                Left err -> status badRequest400 >> text (L.pack err)
-                Right scimUser ->
-                    -- TODO: Check data, username etc
-                    liftIO $ createUser scimUser
-
-        get    "/Users/:uid" undefined
-        put    "/Users/:uid" undefined
-        patch  "/Users/:uid" $ status notImplemented501
-        delete "/Users/:uid" undefined
-        post   "/Groups" undefined
-        get    "/Groups/:uid" undefined
-        put    "/Groups/:uid" undefined
-        patch  "/Groups/:uid" undefined
-        delete "/Groups/:uid" undefined
---}
     -- TODO: Sort this mess out
     loadClient = liftIO . getClient
     createAuthz  cd s cl t scps mn mr = liftIO $ createAuthorization cd s cl t scps mn mr
@@ -258,14 +245,14 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
         GET -> do
             now    <- liftIO getPOSIXTime
             Just client <- queryParam "client_id" >>= loadClient
-            scope  <- liftM (map scopeFromName . T.splitOn " ") (queryParam "scope")
+            scope  <- fmap (map scopeFromName . T.splitOn " ") (queryParam "scope")
             html $ approvalPage client scope (round now)
 
         POST -> do
             clntId    <- postParam "client_id"
             expiryTxt <- postParam "expiry"
-            scpParams <- liftM (Map.lookup "scope") postParams
-            requested <- liftM (Map.lookup "requested_scope") postParams
+            scpParams <- fmap (Map.lookup "scope") postParams
+            requested <- fmap (Map.lookup "requested_scope") postParams
 
             let Right (expiry, _) = decimal expiryTxt
                 uid = subjectId s
@@ -356,7 +343,7 @@ cacheLocationUrl = sessionInsert "_loc"
 
 -- | Retrieve the currently cached location, providing a default URL for use if none is found.
 getCachedLocation :: ByteString -> Handler ByteString
-getCachedLocation defaultUrl = liftM (fromMaybe defaultUrl) $ sessionLookup "_loc"
+getCachedLocation defaultUrl = fromMaybe defaultUrl <$> sessionLookup "_loc"
 
 
 withAuthenticatedUser :: (Subject s)

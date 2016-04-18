@@ -13,18 +13,16 @@ module Broch.OAuth2.Authorize
 where
 
 import Control.Error
-import Control.Monad (liftM, liftM2, when, unless)
+import Control.Monad (liftM2, when, unless)
 import Control.Monad.Trans (lift)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.List (sort)
-import Data.Time.Clock.POSIX
-import Data.Text (Text)
-
 import qualified Data.Map as Map
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-
+import Data.Time.Clock.POSIX
 import Jose.Jwt (Jwt(..))
 
 import Broch.Model
@@ -193,7 +191,7 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
         responseType   <- hoistEither getResponseType
         unless (responseType `elem` supportedResponseTypes) (throwE UnsupportedResponseType)
         unless (checkResponseType client responseType) $ throwE UnauthorizedClient
-        maybeScope     <- liftM (fmap splitOnSpace) $ maybeParam env "scope" `failW` InvalidRequest
+        maybeScope     <- fmap splitOnSpace <$> maybeParam env "scope" `failW` InvalidRequest
         nonce          <- maybeParam env "nonce" `failW` InvalidRequest
         -- TODO: Validate that maxAge is a reasonable time period
         maxAge         <- getMaxAge `failW` InvalidRequest

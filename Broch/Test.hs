@@ -2,7 +2,6 @@
 
 module Broch.Test where
 
-import           Control.Applicative
 import           Control.Monad.IO.Class
 import qualified Crypto.KDF.BCrypt as BCrypt
 import           Crypto.Random (getRandomBytes)

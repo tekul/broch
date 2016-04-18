@@ -2,6 +2,9 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Broch.PostgreSQL
+    ( postgreSQLBackend
+    , passwordAuthenticate
+    )
 where
 
 import           Control.Monad (void)
@@ -23,7 +26,6 @@ import           Database.PostgreSQL.Simple.Time
 import           Database.PostgreSQL.Simple.ToField
 import           Jose.Jwa (JwsAlg(..))
 import           Jose.Jwt (IntDate (..))
-import           Jose.Jwk
 
 import           Broch.Model as M
 import           Broch.URI
@@ -100,10 +102,6 @@ parseAddress = do
         (Nothing, Nothing, Nothing, Nothing, Nothing, Nothing) -> Nothing
         (fmt, street, loc, reg, post, ctry) -> Just (AddressClaims fmt street loc reg post ctry)
 
-
-parseKeys :: RowParser (Maybe [Jwk])
-parseKeys = fieldWith fromJSONField
-
 parseBirthDate :: RowParser (Maybe Text)
 parseBirthDate = do
     dt <- field :: RowParser Date
@@ -165,12 +163,14 @@ loadApproval conn uid cid now = do
   where
     notExpired (_, _, t) = t > posixSecondsToUTCTime now
 
+{-- Not currently needed, but will be when users can manage their approvals
+
 deleteApproval :: Connection -> SubjectId -> ClientId -> IO ()
 deleteApproval conn uid cid =
     void $ execute conn [sql|
         DELETE FROM authz_approval
         where uid = ? and client_id = ? |] (uid, cid)
-
+--}
 
 jwsAlgName :: JwsAlg -> Text
 jwsAlgName a = case a of

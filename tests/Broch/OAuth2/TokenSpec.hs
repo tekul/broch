@@ -3,7 +3,6 @@
 
 module Broch.OAuth2.TokenSpec where
 
-import Control.Applicative ((<$>))
 import Control.Monad.Identity
 import Crypto.Random
 import qualified Data.Aeson as A

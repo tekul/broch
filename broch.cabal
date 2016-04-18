@@ -41,7 +41,7 @@ Library
                     , Broch.URI
   Other-Modules:      Broch.Scim
                     , Broch.Server.BlazeUI
-  Build-Depends:      base >= 4 && < 5
+  Build-Depends:      base >= 4.8 && < 5
                     , aeson >= 0.8.1.0
                     , errors >= 2
                     , blaze-builder >= 0.3

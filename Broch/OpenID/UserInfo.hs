@@ -7,7 +7,6 @@ module Broch.OpenID.UserInfo
     )
 where
 
-import           Control.Applicative ((<$>))
 import           Data.Default.Generics (def)
 import           Data.List (foldl')
 import           Data.Maybe (fromJust)

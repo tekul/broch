@@ -7,7 +7,7 @@ import Crypto.KDF.BCrypt (validatePassword)
 import qualified Data.ByteArray.Encoding as BE
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
-import Data.Pool
+import Data.Pool (createPool)
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE

@@ -3,7 +3,6 @@
 
 module OAuth2IntegrationSpec where
 
-import Control.Applicative ((<$>))
 import Control.Monad (when)
 import Control.Monad.Logger
 import Control.Monad.IO.Class (liftIO)

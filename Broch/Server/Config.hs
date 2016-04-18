@@ -231,7 +231,7 @@ inMemoryConfig issuer kr subSalt = do
         , sectorSubjectId = mkSubjectId subSalt
         }
 
-mkSubjectId :: (Maybe B.ByteString) -> SubjectId -> SectorIdentifier -> SubjectId
+mkSubjectId :: Maybe B.ByteString -> SubjectId -> SectorIdentifier -> SubjectId
 mkSubjectId Nothing     uid _   = uid
 mkSubjectId (Just salt) uid sid =
     let h = hash (B.concat [TE.encodeUtf8 sid, TE.encodeUtf8 uid, salt]) :: Digest SHA256

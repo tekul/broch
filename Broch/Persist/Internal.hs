@@ -17,7 +17,6 @@ module Broch.Persist.Internal
     )
 where
 
-import           Control.Applicative
 import           Control.Exception (throwIO)
 import           Control.Monad (void)
 import           Control.Monad.IO.Class
