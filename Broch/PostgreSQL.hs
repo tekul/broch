@@ -20,11 +20,13 @@ import           Database.PostgreSQL.Simple.FromRow
 import           Database.PostgreSQL.Simple.SqlQQ
 import           Database.PostgreSQL.Simple.Types
 import           Database.PostgreSQL.Simple.Time
+import           Database.PostgreSQL.Simple.ToField
 import           Jose.Jwa (JwsAlg(..))
 import           Jose.Jwt (IntDate (..))
 import           Jose.Jwk
 
 import           Broch.Model as M
+import           Broch.URI
 import           Broch.Server.Config
 
 
@@ -70,6 +72,17 @@ instance FromField JwsAlg where
             Nothing -> returnError ConversionFailed f "Unknown JWS algorithm"
             (Just a) -> return a
 
+instance FromField URI where
+    fromField f Nothing = returnError UnexpectedNull f ""
+    fromField f v = do
+        uri <- fromField f v
+        case parseURI uri of
+            Left _ -> returnError ConversionFailed f "Could not parse stored redirect URI"
+            (Right u) -> return u
+
+instance ToField URI where
+    toField = Escape . renderURI
+
 instance FromField AlgPrefs where
     fromField = fromJSONField
 
@@ -78,6 +91,7 @@ instance FromRow Client where
 
 instance FromRow UserInfo where
     fromRow = UserInfo <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> parseBirthDate <*> field <*> field <*> field <*> field <*> parseAddress <*> parseIntDate
+
 
 parseAddress :: RowParser (Maybe AddressClaims)
 parseAddress = do
@@ -113,7 +127,7 @@ insertAuthorization :: M.Subject s
     -> POSIXTime
     -> [M.Scope]
     -> Maybe Text
-    -> Maybe Text
+    -> Maybe URI
     -> IO ()
 insertAuthorization pool code user client now scope nonce mURI = withResource pool $ \conn ->
     void $ execute conn "insert into authz_code (code, uid, client_id, issued_at, scope, nonce, uri, auth_time) values (?,?,?,?,?,?,?,?)" (code, M.subjectId user, M.clientId client, posixSecondsToUTCTime now, PGArray (map M.scopeName scope), nonce, mURI, posixSecondsToUTCTime (M.authTime user))
@@ -198,17 +212,17 @@ loadClient pool cid = withResource pool $ \conn -> do
         SELECT id, secret, authorized_grant_types, redirect_uri, access_token_validity, refresh_token_validity, allowed_scope, auto_approve, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs, sector_identifier
         FROM oauth2_client
         WHERE id = ? |] [cid]
-    case cs of
-        [c] -> return (Just c)
-        _   -> return Nothing
+    return $ case cs of
+        [c] -> Just c
+        _   -> Nothing
 
 loadUserInfo :: Pool Connection -> LoadUserInfo IO
 loadUserInfo pool uid _ = withResource pool $ \conn -> do
     us <- query conn [sql|
         SELECT * FROM user_info WHERE id=? |] [uid]
-    case us of
-        [u] -> return (Just u)
-        _   -> return Nothing
+    return $ case us of
+        [u] -> Just u
+        _   -> Nothing
 
 passwordAuthenticate :: Pool Connection -> (ByteString -> ByteString -> Bool) -> Text -> ByteString -> IO (Maybe SubjectId)
 passwordAuthenticate pool validatePwd username password = withResource pool $ \conn -> do

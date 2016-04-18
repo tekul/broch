@@ -23,6 +23,7 @@ import Data.Time.Clock.POSIX (POSIXTime)
 import Jose.Jwt
 
 import Broch.Model
+import Broch.URI
 import qualified Broch.OAuth2.Internal as I
 
 data TokenType = Bearer deriving (Show, Eq)
@@ -100,7 +101,10 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
         AuthorizationCode -> do
             code  <- requireParam "code"
             authz <- lift (getAuthorization code) >>= maybe (throwE $ InvalidGrant "Invalid authorization code") return
-            mURI  <- maybeParam "redirect_uri"
+            uriParam <- maybeParam "redirect_uri"
+            mURI <- case uriParam of
+                Nothing -> return Nothing
+                Just u  -> hoistEither $ fmapL InvalidRequest (Just <$> parseURI u)
             validateAuthorization authz client now mURI
             let scp = authzScope authz
                 usr = authzSubject authz
@@ -178,15 +182,13 @@ processTokenRequest env client now getAuthorization authenticateResourceOwner cr
 
 
 validateAuthorization :: (Monad m)
-                      => Authorization
-                      -> Client
-                      -> NominalDiffTime
-                      -> Maybe Text
-                      -> ExceptT TokenError m ()
+    => Authorization
+    -> Client
+    -> NominalDiffTime
+    -> Maybe URI
+    -> ExceptT TokenError m ()
 validateAuthorization (Authorization _ issuedTo (IntDate issuedAt) _ _ authzURI _) client now mURI
-    | mURI /= authzURI = throwE . InvalidGrant $ case mURI of
-                                                  Nothing -> "Missing redirect_uri"
-                                                  _       -> "Invalid redirect_uri"
+    | mURI /= authzURI = throwE . InvalidGrant $ maybe "Missing redirect_uri" (const "Invalid redirect_uri") mURI
     | clientId client /= issuedTo    = throwE $ InvalidGrant "Code was issue to another client"
     | now - issuedAt   > authCodeTTL = throwE $ InvalidGrant "Expired code"
     | otherwise = return ()

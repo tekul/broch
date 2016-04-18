@@ -44,6 +44,7 @@ import qualified Broch.Server.BlazeUI as UI
 import           Broch.Server.Config
 import           Broch.Server.Internal
 import           Broch.Token
+import           Broch.URI
 
 data Usr = Usr SubjectId UTCTime deriving (Show, Read)
 
@@ -288,9 +289,9 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
 
         response <- processAuthorizationRequest responseTypesSupported loadClient generateCode createAuthz resourceOwnerApproval createAccess createIdToken authenticatedUser env now
         case response of
-            Right url                      -> redirectExternal $ TE.encodeUtf8 url
+            Right url                      -> redirectExternal (renderURI url)
             Left (MaliciousClient e)       -> evilClientError e
-            Left (ClientRedirectError url) -> redirectExternal $ TE.encodeUtf8 url
+            Left (ClientRedirectError url) -> redirectExternal (renderURI url)
             Left RequiresAuthentication    -> authenticateUser
 
       where

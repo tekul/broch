@@ -17,6 +17,8 @@ import Jose.Jwt (Jwt, JwtError, IntDate)
 import Jose.Jwa (JwsAlg, JweAlg, Enc)
 import Jose.Jwk
 
+import Broch.URI (URI)
+
 type TokenTTL = NominalDiffTime
 
 type ClientId = Text
@@ -25,11 +27,6 @@ type Nonce    = Text
 
 -- | The unique identifier assigned to a user (typically a UUID).
 type SubjectId = Text
-
--- | The sector identifier for a client.
--- Used to map subject identifiers to a different unique set on a per-client
--- basis, to avoid sharing of user data between different clients.
-type SectorIdentifier = Text
 
 -- | Represents an authenticated user.
 class Subject s where
@@ -100,7 +97,7 @@ type CreateAuthorization m s
     -> POSIXTime
     -> [Scope]
     -> Maybe Nonce
-    -> Maybe Text
+    -> Maybe URI
     -> m ()
 
 type LoadAuthorization m
@@ -209,7 +206,7 @@ data Authorization = Authorization
     , authzAt :: !IntDate
     , authzScope :: ![Scope]
     , authzNonce :: !(Maybe Text)
-    , authzRedirectUri :: !(Maybe Text)
+    , authzRedirectUri :: !(Maybe URI)
     , authzAuthTime :: !POSIXTime
     } deriving (Eq, Show)
 
@@ -309,7 +306,7 @@ data Client = Client
     { clientId :: ClientId
     , clientSecret :: Maybe Text
     , authorizedGrantTypes :: [GrantType]
-    , redirectURIs :: [Text]
+    , redirectURIs :: [URI]
     , accessTokenValidity :: Int
     , refreshTokenValidity :: Int
     , allowedScope :: [Scope]

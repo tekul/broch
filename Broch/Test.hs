@@ -25,13 +25,16 @@ import           Broch.Scim
 import           Broch.Server (brochServer, defaultLoginPage,  defaultApprovalPage, authenticatedSubject, authenticateSubject, passwordLoginHandler)
 import           Broch.Server.Internal
 import           Broch.Server.Config
+import           Broch.URI
 
 testClients :: [Client]
 testClients =
-    [ DD.def { clientId = "admin", clientSecret = Just "adminsecret", authorizedGrantTypes = [ClientCredentials, AuthorizationCode], redirectURIs = ["http://admin"], tokenEndpointAuthMethod = ClientSecretBasic }
-    , DD.def { clientId = "cf", authorizedGrantTypes = [ResourceOwner], redirectURIs = ["http://cf.client"], tokenEndpointAuthMethod = ClientAuthNone }
-    , DD.def { clientId = "app", clientSecret = Just "appsecret", authorizedGrantTypes = [AuthorizationCode, Implicit, RefreshToken], redirectURIs = ["http://localhost:8080/app"], tokenEndpointAuthMethod = ClientSecretBasic, allowedScope = [OpenID, CustomScope "scope1", CustomScope "scope2"] }
+    [ DD.def { clientId = "admin", clientSecret = Just "adminsecret", authorizedGrantTypes = [ClientCredentials, AuthorizationCode], redirectURIs = [r "http://admin"], tokenEndpointAuthMethod = ClientSecretBasic }
+    , DD.def { clientId = "cf", authorizedGrantTypes = [ResourceOwner], redirectURIs = [r "http://cf.client"], tokenEndpointAuthMethod = ClientAuthNone }
+    , DD.def { clientId = "app", clientSecret = Just "appsecret", authorizedGrantTypes = [AuthorizationCode, Implicit, RefreshToken], redirectURIs = [r "http://localhost:8080/app"], tokenEndpointAuthMethod = ClientSecretBasic, allowedScope = [OpenID, CustomScope "scope1", CustomScope "scope2"] }
     ]
+  where
+    r u = let Right uri = parseURI u in uri
 
 testUsers :: [ScimUser]
 testUsers =

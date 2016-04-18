@@ -25,10 +25,10 @@ import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Network.HTTP.Types
 import Jose.Jwt (Jwt(..))
 
 import Broch.Model
+import Broch.URI
 import Broch.OAuth2.Internal
 
 -- | Error conditions returned by the @processAuthorizationRequest@ function.
@@ -44,7 +44,7 @@ data AuthorizationRequestError
     | RequiresAuthentication -- TODO add requested type (popup etc)
     -- | The request has an error which should be reported to
     -- the client via a redirect.
-    | ClientRedirectError Text deriving (Show, Eq)
+    | ClientRedirectError URI deriving (Show, Eq)
 
 -- | Categories of "malicious client" error.
 -- Allows the front end to provide more information
@@ -103,7 +103,7 @@ processAuthorizationRequest :: (Monad m, Subject s)
     -- ^ The authorization request parameters.
     -> POSIXTime
     -- ^ The current time.
-    -> m (Either AuthorizationRequestError Text)
+    -> m (Either AuthorizationRequestError URI)
     -- ^ The successful redirect URL which the front end should return to the client.
     -- If an error is returned, the front end's behaviour will depend on the
     -- specific error type as defined above.
@@ -123,9 +123,8 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
 
     -- Create the successful response redirect (unless id_token creation fails)
     responseParams <- fmapLT errRedirect $ authorizationResponse responseType user client scope nonce uri
-    let qs = TE.decodeUtf8 $ renderSimpleQuery False $ addStateParam state responseParams
 
-    return $ buildRedirect redirectURI (separator responseType) qs
+    return $ buildRedirect redirectURI responseType (addStateParam state responseParams)
   where
     authenticatedUser prompt maxAge errRedirect = do
         mUser <- lift currentUser
@@ -229,18 +228,18 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
             "select-account" -> return SelectAccount
             x -> Left (T.concat ["Unrecognise 'prompt' value: ", x])
 
-    errorRedirector :: Text -> AuthorizationError -> AuthorizationRequestError
+    errorRedirector :: URI -> AuthorizationError -> AuthorizationRequestError
     errorRedirector redirectBase e =
         let stateParam = maybeParam env "state"
             st         = either (const Nothing) id stateParam
-            sep        = case getResponseType of
-                             Right rt -> separator rt
-                             _        -> '?' -- TODO: Use client grant/response types
-        in ClientRedirectError $ buildRedirect redirectBase sep (errorURL st e)
+            -- The response type may be invalid at this point, so default to code
+            -- TOOD: Use client registered response types?
+            rt         = either (const Code) id getResponseType
+        in ClientRedirectError $ buildRedirect redirectBase rt (errorParams st e)
 
-    buildRedirect base sep url
-        | sep == '?' && isJust (T.find (== '?') base) = T.concat [base, T.cons '&' url]
-        | otherwise = T.concat [base, T.cons sep url]
+    buildRedirect base rt params = case rt of
+        Code -> addQueryParams base params
+        _    -> setFragmentParams base params
 
     getMaxAge = do
         maxAge <- maybeParam env "max_age"
@@ -276,8 +275,6 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
     normalize = T.intercalate " " . sort . splitOnSpace
     splitOnSpace = T.splitOn " "
 
-    separator responseType = if responseType == Code then '?' else '#'
-
     -- "Evil client" checking
     -- Get and checks the parameters for which an error should not be reported
     -- to the client, but to the resource owner.
@@ -285,7 +282,7 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
     -- If none is supplied, the default for the client will be used.
     getClientAndRedirectURI = do
         cid    <- requireParam env "client_id" `failW` (MaliciousClient . InvalidClient)
-        uri    <- maybeParam env "redirect_uri" `failW` (MaliciousClient . InvalidRedirectUri)
+        uri    <- maybeParseParam env "redirect_uri" parseURI `failW` (MaliciousClient . InvalidRedirectUri)
         client <- maybe (throwE $ MaliciousClient $ InvalidClient "Client does not exist") return =<< lift (getClient cid)
         validateRedirectURI client uri
         return (client, uri)
@@ -296,18 +293,16 @@ processAuthorizationRequest supportedResponseTypes getClient genCode createAutho
             [_] -> return ()
             _   -> throwE $ MaliciousClient MissingRedirectUri
         validateRedirectURI client (Just uri)
-          | T.any (== '#') uri = throwE $ MaliciousClient FragmentInUri
-          | otherwise          = unless (uri `elem` redirectURIs client) $
-                                     throwE . MaliciousClient $ InvalidRedirectUri "redirect_uri is not registered for client"
+            | uri `elem` redirectURIs client = return ()
+            | otherwise = throwE . MaliciousClient $ InvalidRedirectUri "redirect_uri is not registered for client"
 
     failW :: Monad m => Either e1 a -> (e1 -> e2) -> ExceptT e2 m a
     failW (Right a) _ = return a
     failW (Left m)  f = throwE $ f m
 
-errorURL :: Maybe Text -> AuthorizationError -> Text
-errorURL state authzError = TE.decodeUtf8 qs
+errorParams :: Maybe Text -> AuthorizationError -> [(ByteString, ByteString)]
+errorParams state authzError = addStateParam state params
   where
-    qs = renderSimpleQuery False $ addStateParam state params
     params = ("error", e) : maybe [] (\d -> [("error_description", d)]) desc
     (e, desc) = case authzError of
         InvalidRequest d      -> ("invalid_request", Just $ TE.encodeUtf8 d)
@@ -319,5 +314,5 @@ errorURL state authzError = TE.decodeUtf8 qs
         Unavailable           -> ("temporarily_unavailable", Nothing)
         LoginRequired         -> ("login_required", Nothing)
 
-addStateParam :: Maybe Text -> [SimpleQueryItem] -> [SimpleQueryItem]
+addStateParam :: Maybe Text -> [(ByteString, ByteString)] -> [(ByteString, ByteString)]
 addStateParam state ps = maybe ps (\s -> ("state", TE.encodeUtf8 s) : ps) state

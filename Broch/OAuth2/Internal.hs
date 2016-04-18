@@ -45,3 +45,9 @@ maybeParam env p = case Map.lookup p env of
     _            -> Right Nothing
   where
     prefixMsg m = T.append m p
+
+maybeParseParam :: Map Text [Text] -> Text -> (Text -> Either Text a) -> Either Text (Maybe a)
+maybeParseParam env p f = case maybeParam env p of
+    Right (Just v) -> Just <$> f v
+    Right Nothing  -> Right Nothing
+    Left e         -> Left e

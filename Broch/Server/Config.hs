@@ -22,6 +22,7 @@ import           Jose.Jwt
 import           System.Directory (doesFileExist)
 
 import Broch.Model
+import Broch.URI (SectorIdentifier)
 import Broch.Token
 
 

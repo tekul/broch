@@ -10,6 +10,7 @@ import Jose.Jwt (KeyId(..), IntDate(..))
 import Jose.Jwk
 
 import Broch.Model
+import Broch.URI
 
 -- $ date -r 1400000000
 -- Tue 13 May 2014 17:53:20 BST
@@ -46,8 +47,10 @@ clientPublicJwks :: [Jwk]
 clientPublicJwks = let RsaPublicJwk k _ _ _ = testPublicJwks !! 1
                    in  [RsaPublicJwk k (Just (KeyId "c1")) (Just Enc) Nothing]
 
+r u = let Right uri = parseURI u in uri
+
 -- Authorization from user "cat" to app
-catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just "http://app") (now - 60)
+catAuthorization = Authorization "cat" (clientId appClient) (IntDate $ now - 20) [] Nothing (Just (r "http://app")) (now - 60)
 
 loadAuthorization "catcode" = return $ Just catAuthorization
 loadAuthorization "catoic"  = return $ Just $ catAuthorization {authzScope = [OpenID]}
@@ -58,8 +61,8 @@ authenticateResourceOwner username password
     | username == password = return $ Just username
     | otherwise            = return Nothing
 
-appClient   = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] ["http://app2", "http://app"] 99 99 appClientScope False ClientSecretBasic Nothing Nothing (Just testPublicJwks) Nothing Nothing Nothing "app"
-adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] ["http://admin"] 99 99 adminClientScope False ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing "admin"
+appClient   = Client "app" (Just "appsecret") [AuthorizationCode, RefreshToken] [r "http://app2", r "http://app"] 99 99 appClientScope False ClientSecretBasic Nothing Nothing (Just testPublicJwks) Nothing Nothing Nothing "app"
+adminClient = Client "admin" (Just "adminsecret") [ClientCredentials, AuthorizationCode] [r "http://admin"] 99 99 adminClientScope False ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing "admin"
 roClient    = Client "ro" (Just "rosecret") [ResourceOwner] [] 99 99 appClientScope False ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing "ro"
 jsClient    = Client "js" Nothing [Implicit] [] 99 99 jsClientScope False ClientAuthNone Nothing Nothing Nothing Nothing Nothing Nothing "js"
 allClient   = Client "all" (Just "allsecret") [AuthorizationCode, ClientCredentials, Implicit, ResourceOwner] [] 99 99 appClientScope False ClientSecretBasic Nothing Nothing Nothing Nothing Nothing Nothing "all"
@@ -69,7 +72,7 @@ adminClientScope = appClientScope ++ [CustomScope "admin"]
 jsClientScope    = map CustomScope ["weakscope"]
 
 getClient "app"   = return $ Just appClient
-getClient "appq"  = return $ Just appClient { redirectURIs = ["http://app?x=1&y=2"] }
+getClient "appq"  = return $ Just appClient { redirectURIs = [r "http://app?x=1&y=2"] }
 getClient "admin" = return $ Just adminClient
 getClient "js"    = return $ Just jsClient
 getClient _       = return Nothing

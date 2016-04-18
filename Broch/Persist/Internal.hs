@@ -18,6 +18,7 @@ module Broch.Persist.Internal
 where
 
 import           Control.Applicative
+import           Control.Exception (throwIO)
 import           Control.Monad (void)
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Reader (ReaderT)
@@ -25,6 +26,7 @@ import           Data.Aeson (encode, decodeStrict)
 import           Data.ByteString.Lazy (toStrict)
 import           Data.Maybe (fromJust)
 import           Database.Persist.Sql (SqlBackend)
+import           Database.Persist.Types (PersistException(..))
 import           Database.Persist (insert, getBy, delete, deleteBy, Entity(..))
 import           Database.Persist.TH (share, sqlSettings, mkMigrate, mkPersist, persistLowerCase)
 import           Data.Text (Text)
@@ -36,6 +38,7 @@ import           Jose.Jwt (IntDate (..))
 
 import qualified Broch.Model as M
 import           Broch.Scim
+import           Broch.URI
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 AuthCode sql=authz_code
@@ -96,10 +99,10 @@ createAuthorization :: (MonadIO m, Functor m, M.Subject s)
                     -> POSIXTime
                     -> [M.Scope]
                     -> Maybe Text
-                    -> Maybe Text
+                    -> Maybe URI
                     -> ReaderT SqlBackend m ()
 createAuthorization code user client now scope nonce mURI =
-    void $ insert $ AuthCode code (M.subjectId user) (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce mURI (posixSecondsToUTCTime $ M.authTime user)
+    void $ insert $ AuthCode code (M.subjectId user) (M.clientId client) (posixSecondsToUTCTime now) (map M.scopeName scope) nonce ((TE.decodeUtf8 . renderURI) <$> mURI) (posixSecondsToUTCTime $ M.authTime user)
 
 getAuthorizationByCode :: (MonadIO m)
                        => Text
@@ -110,7 +113,10 @@ getAuthorizationByCode code = do
         Nothing -> return Nothing
         Just (Entity key (AuthCode _ uid client issuedAt scope nonce uri authTime)) -> do
             delete key
-            return $ Just $ M.Authorization uid client (IntDate $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri (utcTimeToPOSIXSeconds authTime)
+            uri' <- case uri of
+                Nothing -> return Nothing
+                Just u  -> either (liftIO . throwIO . PersistError) return (Just <$> parseURI u)
+            return $ Just $ M.Authorization uid client (IntDate $ utcTimeToPOSIXSeconds issuedAt) (map M.scopeFromName scope) nonce uri' (utcTimeToPOSIXSeconds authTime)
 
 createApproval :: (MonadIO m, Functor m)
                => M.Approval
@@ -144,7 +150,7 @@ createClient :: (MonadIO m, Functor m)
              -> ReaderT SqlBackend m ()
 createClient (M.Client cid ms gs uris atv rtv scps appr authMethod authAlg kuri ks idtAlgs uiAlgs roAlgs sectorId) =
     let ec a = fmap (TE.decodeUtf8 . toStrict . encode) a
-    in  void $ insert $ Client cid ms (map M.grantTypeName gs) uris atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg) kuri (ec ks) (ec idtAlgs) (ec uiAlgs) (ec roAlgs) sectorId
+    in  void $ insert $ Client cid ms (map M.grantTypeName gs) (map (TE.decodeUtf8 . renderURI) uris) atv rtv (map M.scopeName scps) appr (toText authMethod) (fmap toText authAlg) kuri (ec ks) (ec idtAlgs) (ec uiAlgs) (ec roAlgs) sectorId
 
 getClientById :: (MonadIO m)
               => Text
@@ -162,7 +168,10 @@ getClientById cid = do
                 uiAlgs'    = TE.encodeUtf8 <$> uiAlgs >>= decodeStrict
                 roAlgs'    = TE.encodeUtf8 <$> roAlgs >>= decodeStrict
 
-            return $ Just $ M.Client cid ms grants uris atv rtv (map M.scopeFromName scps) appr authMethod authAlg kuri ks' idtAlgs' uiAlgs' roAlgs' sectorId
+            uris' <- case mapM parseURI uris of
+                Left _  -> liftIO . throwIO $ PersistError "unable to parse stored redirect URIs"
+                Right u -> return u
+            return $ Just $ M.Client cid ms grants uris' atv rtv (map M.scopeFromName scps) appr authMethod authAlg kuri ks' idtAlgs' uiAlgs' roAlgs' sectorId
 
 createUser :: (MonadIO m, Functor m)
            => Text

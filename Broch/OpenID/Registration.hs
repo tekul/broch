@@ -2,19 +2,18 @@
 
 module Broch.OpenID.Registration where
 
-import           Control.Error (note)
+import           Control.Error (fmapL)
 import           Control.Monad (unless, when)
 import           Data.Aeson
-import           Data.List (nub)
 import           Data.Maybe (fromMaybe)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           GHC.Generics (Generic)
 import           Jose.Jwa
 import           Jose.Jwk
-import           Network.URI (parseAbsoluteURI, uriAuthority, uriRegName)
 
 import           Broch.Model
+import           Broch.URI
 import           Broch.OpenID.Discovery hiding (jwks_uri)
 
 data RegistrationError = InvalidRedirectUri
@@ -90,13 +89,16 @@ makeClient OpenIDConfiguration {..} cid csec ClientMetaData {..} = do
         (Left (InvalidMetaData "Implicit grant is not supported"))
 
     -- Calculate sector identifier from redirect_uris if it isn't set.
-    sectorId <- getSectorId uris
+    sectorUri <- case sector_identifier_uri of
+        Nothing -> return Nothing
+        Just u  -> Just <$> fmapL InvalidMetaData (parseURI u)
+    sectorId <- fmapL InvalidMetaData $ getSectorIdentifier sectorUri uris
 
     return Client
         { clientId = cid
         , clientSecret = Just csec
         , authorizedGrantTypes = clientGrantTypes
-        , redirectURIs = redirect_uris
+        , redirectURIs = uris
         , accessTokenValidity  = 24 * 60 * 60
         , refreshTokenValidity = 30 * 24 * 60 * 60
         , allowedScope = [OpenID, Profile, Email, Address, Phone]
@@ -112,27 +114,9 @@ makeClient OpenIDConfiguration {..} cid csec ClientMetaData {..} = do
         }
   where
     checkRedirectURIs [] = Right []
-    checkRedirectURIs (r:rs) = case uri of
-        Nothing -> Left InvalidRedirectUri
-        Just u  -> fmap (u :) (checkRedirectURIs rs)
-      where
-        -- This will reject URIs with a fragment
-        uri = parseAbsoluteURI (T.unpack r)
-
-    getSectorId uris = case sector_identifier_uri of
-        Just s  -> do
-            uri <- note (InvalidMetaData "sector_identifier_uri is not an absolute URI") $ parseAbsoluteURI (T.unpack s)
-            sectorIdentifierFromURI uri
-        Nothing -> do
-            hosts <- sequence (map sectorIdentifierFromURI uris)
-            case nub hosts of
-                [h] -> Right h
-                []  -> Left (InvalidMetaData "Unable to calculate sector identifier: no redirect_uri set")
-                _   -> Left (InvalidMetaData "Unable to calculate sector identifier: redirect_uri hosts are not unique")
-
-    sectorIdentifierFromURI uri =
-        fmap (T.pack . uriRegName) $ note (InvalidMetaData "URI has no authority component") (uriAuthority uri)
-
+    checkRedirectURIs (r:rs) = case parseURI r of
+        Left _  -> Left InvalidRedirectUri
+        Right u -> fmap (u :) (checkRedirectURIs rs)
 
     makeAlgorithmPrefs Nothing   Nothing  Nothing  = return Nothing
     makeAlgorithmPrefs (Just s)  Nothing  Nothing  = return . Just $ AlgPrefs (Just s) NotEncrypted
