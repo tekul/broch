@@ -20,6 +20,7 @@ where
 import           Control.Error (fmapL)
 import           Control.Monad (unless)
 import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BC
 import           Data.Monoid ((<>))
 import           Data.List (nub)
 import           Data.Maybe (isJust, isNothing)
@@ -29,7 +30,10 @@ import           Network.HTTP.Types (renderSimpleQuery)
 import qualified URI.ByteString as U hiding (URI)
 
 -- | URI type.
-newtype URI = URI { toURI :: U.URIRef U.Absolute } deriving (Eq, Show)
+newtype URI = URI { toURI :: U.URIRef U.Absolute } deriving (Eq)
+
+instance Show URI where
+    show = BC.unpack . renderURI
 
 -- | The sector identifier for a client.
 -- Used to map subject identifiers to a different unique set on a per-client
