@@ -33,6 +33,13 @@ class Subject s where
     subjectId :: s -> SubjectId
     authTime  :: s -> POSIXTime
 
+-- | A very basic Subject instance.
+data User = User Text UTCTime deriving (Read, Show)
+
+instance Subject User where
+    subjectId (User s _) = s
+    authTime  (User _ t) = utcTimeToPOSIXSeconds t
+
 -- | Standard scopes supported by OpenID Connect.
 --
 -- Other requested scopes which are not part of the standard

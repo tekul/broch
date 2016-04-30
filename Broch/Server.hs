@@ -46,11 +46,6 @@ import           Broch.Server.Internal
 import           Broch.Token
 import           Broch.URI
 
-data Usr = Usr SubjectId UTCTime deriving (Show, Read)
-
-instance Subject Usr where
-    subjectId (Usr s _) = s
-    authTime  (Usr _ t) = utcTimeToPOSIXSeconds t
 
 userIdKey :: ByteString
 userIdKey = "_uid"
@@ -89,7 +84,7 @@ passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
             Nothing -> redirect $ maybe "/login" (\r -> B.concat ["/login?_rid=", r]) rid
             Just u  -> do
                 now <- liftIO getCurrentTime
-                sessionInsert userIdKey (B.pack $ show $ Usr u now)
+                sessionInsert userIdKey (B.pack $ show $ User u now)
                 maybe (return ()) (sessionInsert (TE.encodeUtf8 requestIdKey)) rid
                 redirect =<< getCachedLocation "/home"
     _    -> methodNotAllowed
@@ -103,7 +98,7 @@ passwordLoginHandler loginPage authenticate = httpMethod >>= \m -> case m of
 -- see if it contains a parameter with the same name as the request ID cached in the session. If it does, the
 -- current request has the same ID as the one which prompted the login and @True@ is returned as the second
 -- parameter in the tuple.
-authenticatedSubject :: Handler (Maybe (Usr, Bool))
+authenticatedSubject :: Handler (Maybe (User, Bool))
 authenticatedSubject = do
     usr  <- sessionLookup userIdKey
     rid1 <- sessionLookup (TE.encodeUtf8 requestIdKey)
