@@ -231,7 +231,7 @@ data Approval = Approval
     , approvedScope   :: [Scope]
     , deniedScope     :: [Scope]
     , approvalExpiry  :: IntDate
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 
 data GrantType
@@ -326,7 +326,7 @@ data Client = Client
     , userInfoAlgs   :: Maybe AlgPrefs
     , requestObjAlgs :: Maybe AlgPrefs
     , sectorIdentifier :: Text
-    } deriving (Generic, Show)
+    } deriving (Generic, Show, Eq)
 
 instance Default Client
 
@@ -378,9 +378,9 @@ omitNothingOptions = defaultOptions { omitNothingFields = True }
 
 data JwePrefs = E JweAlg Enc
               | NotEncrypted
-              deriving (Show, Generic)
+              deriving (Show, Generic, Eq)
 
-data AlgPrefs = AlgPrefs (Maybe JwsAlg) JwePrefs deriving (Show, Generic)
+data AlgPrefs = AlgPrefs (Maybe JwsAlg) JwePrefs deriving (Show, Generic, Eq)
 
 instance ToJSON JwePrefs
 instance FromJSON JwePrefs

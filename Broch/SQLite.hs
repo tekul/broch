@@ -5,12 +5,13 @@ module Broch.SQLite
     ( createSchema
     , sqliteBackend
     , passwordAuthenticate
+    , selfTest
     )
 where
 
 import           Control.Monad (void)
 import           Control.Monad.IO.Class
-import           Crypto.KDF.BCrypt (hashPassword)
+import           Crypto.KDF.BCrypt (hashPassword, validatePassword)
 import           Data.Aeson
 import           Data.ByteString (ByteString)
 import           Data.ByteString.Lazy (toStrict)
@@ -31,6 +32,7 @@ import           Jose.Jwk (Jwk)
 import           Jose.Jwt (IntDate (..))
 
 import           Broch.Model as M
+import           Broch.Test (testClients)
 import           Broch.URI
 import           Broch.Server.Config
 
@@ -53,6 +55,27 @@ createSchema c = do
     execute c "INSERT OR REPLACE INTO op_user VALUES ('1234_cat_id', 'cat', ?, NULL)" [decodeUtf8 catsPassword]
 
     execute_ c "INSERT OR REPLACE INTO user_info VALUES ('1234_cat_id', 'Catherine De Feline', 'Catherine', 'De Feline', 'Kitty', 'Cat', 'cat', 'http://placeholder', 'http://placeholder', 'http://placeholder', 'cat@connect.broch.io', 0, 'female', '1985-07-23', 'Europe/Paris', 'fr-FR', '+33 12 34 56 78', 0, '25 Cat Street, PussyVille, 1234567, Felineshire, France', '25 Cat Street', 'PussyVille', 'Felineshire', '1234567', 'FR', datetime('now'))"
+
+selfTest :: IO ()
+selfTest = do
+    c <- open ":memory:"
+    createSchema c
+    mapM_ (insertClient c) [head testClients, testClients !! 1]
+    let admin = head testClients
+    now <- getPOSIXTime
+    loadClient c "admin" >>= print . (==) (Just admin)
+    loadClient c "cf" >>= print . (==) (Just (testClients !! 1))
+    passwordAuthenticate c validatePassword "cat" "cat" >>= print . (==) (Just "1234_cat_id")
+    passwordAuthenticate c validatePassword "cat" "wrong" >>= print . (==) Nothing
+    let approval  = Approval "cat" "app" [OpenID] [] (IntDate (now + 10))
+    insertApproval c approval
+    loadApproval c "cat" "app" now >>= print . (==) (Just approval)
+    loadApproval c "cat" "app" (now + 11) >>= print . (==) Nothing
+    insertAuthorization c "somecode" (User "1234_cat_id" (posixSecondsToUTCTime now)) admin now [OpenID] Nothing (Just (head $ redirectURIs admin))
+    loadAndDeleteAuthorization c "somecode" >>= print . (/=) Nothing
+    loadAndDeleteAuthorization c "somecode" >>= print . (==) Nothing
+    loadUserInfo c "1234_cat_id" admin >>= print
+    close c
 
 sqliteBackend :: (MonadIO m, M.Subject s) => Pool Connection -> Config m s -> Config m s
 sqliteBackend pool config = config
