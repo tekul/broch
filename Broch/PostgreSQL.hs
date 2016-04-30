@@ -79,7 +79,7 @@ instance FromField URI where
     fromField f v = do
         uri <- fromField f v
         case parseURI uri of
-            Left _ -> returnError ConversionFailed f "Could not parse stored redirect URI"
+            Left _ -> returnError ConversionFailed f "Could not parse stored URI"
             (Right u) -> return u
 
 instance ToField URI where
@@ -202,9 +202,9 @@ lookupJwsAlg nm = case nm of
 insertClient :: Pool Connection -> Client -> IO ()
 insertClient pool Client{..} = withResource pool $ \conn ->
     void $ execute conn [sql|
-        INSERT INTO oauth2_client (id, secret, redirect_uri, allowed_scope, authorized_grant_types, access_token_validity, refresh_token_validity, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs, sector_identifier)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) |]
-        ((clientId, clientSecret, PGArray redirectURIs, PGArray (map scopeName allowedScope), PGArray (map grantTypeName authorizedGrantTypes), accessTokenValidity, refreshTokenValidity, clientAuthMethodName tokenEndpointAuthMethod, fmap jwsAlgName tokenEndpointAuthAlg, clientKeysUri) :. (fmap toJSON clientKeys, fmap toJSON idTokenAlgs, fmap toJSON userInfoAlgs, fmap toJSON requestObjAlgs, sectorIdentifier))
+        INSERT INTO oauth2_client (id, secret, redirect_uri, allowed_scope, authorized_grant_types, access_token_validity, refresh_token_validity, auth_method, auth_alg, keys_uri, keys, id_token_algs, user_info_algs, request_obj_algs, sector_identifier, auto_approve)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) |]
+        ((clientId, clientSecret, PGArray redirectURIs, PGArray (map scopeName allowedScope), PGArray (map grantTypeName authorizedGrantTypes), accessTokenValidity, refreshTokenValidity, clientAuthMethodName tokenEndpointAuthMethod, fmap jwsAlgName tokenEndpointAuthAlg, clientKeysUri) :. (fmap toJSON clientKeys, fmap toJSON idTokenAlgs, fmap toJSON userInfoAlgs, fmap toJSON requestObjAlgs, sectorIdentifier, autoapprove))
 
 loadClient :: Pool Connection -> ClientId -> IO (Maybe Client)
 loadClient pool cid = withResource pool $ \conn -> do
