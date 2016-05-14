@@ -12,8 +12,6 @@ module Broch.Server.Session
     )
 where
 
-import Debug.Trace
-
 import Prelude hiding (lookup)
 import Blaze.ByteString.Builder (toByteString)
 import Control.Error
@@ -85,24 +83,30 @@ defaultLoadSession :: Int64 -> Jwk -> LoadSession
 defaultLoadSession timeout key req = do
     now <- fmap round getPOSIXTime
     sessionCookie <- decodeCookie
-    traceM $ show sessionCookie
-    let (session, expired) = case sessionCookie of
-                                Just (SessionCookie x s) -> if x < now
-                                                                then (Nothing, True)
-                                                                else (Just s, False)
-                                Nothing -> (Nothing, False)
-    return (session, saveSesh now expired)
+    let session = case sessionCookie of
+            Just (SessionCookie x s) -> if x < now then Nothing else Just s
+            Nothing -> Nothing
+    return (session, saveSesh now (isJust encryptedCookie))
   where
+    encryptedCookie = do
+        cookies <- L.lookup hCookie $ requestHeaders req
+        L.lookup seshId (parseCookies cookies)
     decodeCookie = runMaybeT $ do
-        cookies <- hoistMaybe $ L.lookup hCookie $ requestHeaders req
-        encryptedCookie <- hoistMaybe $ L.lookup seshId (parseCookies cookies)
-        cookie <- lift (Jwt.decode [key] (Just cookieEncoding) encryptedCookie)
+        ec <- hoistMaybe encryptedCookie
+        cookie <- lift (Jwt.decode [key] (Just cookieEncoding) ec)
         case cookie of
             Right (Jwt.Jwe (_, content)) -> hoistMaybe . hush . S.decode $ content
             _ -> nothing
 
     seshId  = "bsid"
 
+    -- Save session logic needs deal with:
+    -- 1. If no cookie and no session then do nothing
+    -- 2. Clearing the cookie if it existed at the start of the request but the session
+    -- at the end is Nothing. This could be because
+    --    a) The session was expired and was thus set to Nothing above, or
+    --    b) The session was invalidated and set to Nothing during the request
+    -- 3. Saving a session which exists at the end of the request
     saveSesh _ False Nothing = return Nothing
     saveSesh _ True Nothing  = return clearCookie
     saveSesh now _ (Just s) = do

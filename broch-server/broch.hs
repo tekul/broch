@@ -120,7 +120,7 @@ runWithOptions BrochOpts {..} sidSalt = do
         extraRoutes =
             [ ("/home",   text "Hello, I'm the home page")
             , ("/login",  passwordLoginHandler defaultLoginPage authenticate)
-            , ("/logout", invalidateSession >> complete)
+            , ("/logout", invalidateSession >> text "You have been logged out")
             ]
         router = foldl (\tree (r, h) -> addToRoutingTree r h tree) baseRouter extraRoutes
         broch = routerToMiddleware (defaultLoadSession 3600 sessionKey) issuer router
