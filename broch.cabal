@@ -16,7 +16,7 @@ Category:           OAuth
 
 Source-Repository head
   Type:             git
-  Location:         git://github.com/tekul/broch.git
+  Location:         https://github.com/tekul/broch.git
 
 Library
   Default-Language:   Haskell2010
