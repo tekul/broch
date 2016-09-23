@@ -7,17 +7,18 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
 import Data.Pool (createPool, withResource)
 import Data.Maybe (fromMaybe, isNothing)
+import Data.Monoid ((<>))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.PostgreSQL.Simple
 import qualified Database.SQLite.Simple as SQLite
-import Network.Wai.Application.Static
+import Network.Wai.Application.Static (staticApp, defaultWebAppSettings)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
-import Network.Wai.Handler.Warp
+import Network.Wai.Handler.Warp (run)
 import Options.Applicative
 import System.Environment (getEnvironment)
 import System.Exit (die)
-import Web.Routing.TextRouting
+import Web.Routing.TextRouting (addToRoutingTree)
 
 import qualified Broch.PostgreSQL as BP
 import qualified Broch.SQLite as BS
