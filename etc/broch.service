@@ -1,5 +1,5 @@
 # Broch systemd unit file
-# 
+#
 # cp broch.service /etc/systemd/system/broch.service
 # systemctl daemon-reload
 # systemctl start broch.service
@@ -14,7 +14,7 @@ Description=Broch OpenID Connect Server
 After=network.target postgresql.service
 
 [Service]
-ExecStart=/usr/bin/broch --issuer=https://connect.broch.io --connection-string='dbname=broch user=broch password=xxx host=localhost'
+ExecStart=/usr/bin/broch
 WorkingDirectory=/home/broch
 User=broch
 EnvironmentFile=/home/broch/broch.env
