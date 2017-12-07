@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Broch.OpenID.UserInfo
     ( UserInfo
     , scimUserToUserInfo

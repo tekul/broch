@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Broch.Server.BlazeUI where
+module Broch.Server.BlazeUI
+    ( loginPage
+    , approvalPage
+    )
+where
 
 import           Control.Monad (forM_)
 import           Data.Int (Int64)

@@ -31,8 +31,6 @@ module Broch.Server.Internal
     )
 where
 
-import Debug.Trace
-
 import Control.Arrow (second)
 import Control.Error
 import Control.Exception (SomeException, catch)
@@ -116,7 +114,7 @@ routerToMiddleware loadSesh baseUrl router app req respond = case matchRoute' (p
     _        -> app req $ \res -> respond res
 
   where
-    redirectFull url hdrs = traceShow url $ responseLBS status302 ((hLocation, url) : hdrs) ""
+    redirectFull url hdrs = responseLBS status302 ((hLocation, url) : hdrs) ""
     httpMeth              = parseMethod $ requestMethod req
 
     execHandler :: RequestData -> Handler () -> IO Response
