@@ -51,7 +51,7 @@ import Network.Wai
 import Network.Wai.Parse
 import Text.Blaze.Html (Html)
 import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
-import Web.Routing.TextRouting
+import qualified Web.Routing.SafeRouting as R
 
 import qualified Broch.Server.Session as S
 
@@ -86,14 +86,22 @@ data ResponseState = ResponseState
     , resSession :: !(Maybe S.Session)
     }
 
-routerToApp :: S.LoadSession -> Text -> RoutingTree (Handler ()) -> Application
+routerToApp
+    :: S.LoadSession
+    -> Text
+    -> R.PathMap (Handler ())
+    -> Application
 routerToApp loadSesh baseUrl router req respond =
     let nf404 _ respond' = respond' (responseLBS notFound404 [] "Not Found")
     in  routerToMiddleware loadSesh baseUrl router nf404 req respond
 
-routerToMiddleware :: S.LoadSession -> Text -> RoutingTree (Handler ()) -> Middleware
-routerToMiddleware loadSesh baseUrl router app req respond = case matchRoute' (pathInfo req) router of
-    [(_, h)] -> do
+routerToMiddleware
+    :: S.LoadSession
+    -> Text
+    -> R.PathMap (Handler ())
+    -> Middleware
+routerToMiddleware loadSesh baseUrl router app req respond = case R.match router (pathInfo req) of
+    [h] -> do
         pParams <- fst <$> parseRequestBody lbsBackEnd req
         response <- case httpMeth of
             Left badM -> return $ responseLBS methodNotAllowed405 [] $ BL.fromStrict $ B.concat["Unknown or unsupported HTTP method: ", badM]

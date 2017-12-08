@@ -42,7 +42,7 @@ Library
                     , Broch.URI
   Other-Modules:      Broch.Scim
                     , Broch.Server.BlazeUI
-  Build-Depends:      base >= 4.8 && < 5
+  Build-Depends:      base >= 4.9 && < 5
                     , aeson >= 0.8.1.0
                     , errors >= 2
                     , blaze-builder >= 0.3
@@ -62,7 +62,7 @@ Library
                     , persistent >= 2.1 && < 3
                     , persistent-template >= 2.1 && < 3
                     , postgresql-simple >= 0.5.1
-                    , reroute >= 0.2.3 && < 0.4
+                    , reroute >= 0.4
                     , resource-pool > 0.2.3
                     , sqlite-simple >= 0.4.9
                     , text  >= 0.11

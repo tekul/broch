@@ -30,7 +30,8 @@ import           Network.HTTP.Types
 import qualified Network.Wai as W
 import           Network.HTTP.Conduit (httpLbs, newManager, managerConnCount, redirectCount, tlsManagerSettings, parseUrl, responseBody)
 import           Text.Blaze.Html (Html)
-import           Web.Routing.TextRouting
+import qualified Web.Routing.Combinators as R
+import qualified Web.Routing.SafeRouting as R
 
 import           Broch.Model hiding (Email)
 import           Broch.OAuth2.Authorize
@@ -122,15 +123,15 @@ authenticateSubject = do
 
 -- | Creates the server routing table from a configuration.
 --
--- This is where everything is plugged in to build the
+-- This is where everything is plugged in to build the server
 brochServer :: (Subject s)
     => Config IO s
     -> (Client -> [Scope] -> Int64 -> Html)
     -> Handler (Maybe (s, Bool))
     -> Handler ()
-    -> RoutingTree (Handler ())
+    -> R.PathMap (Handler ())
 brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
-    foldl (\tree (r, h) -> addToRoutingTree r h tree) emptyRoutingTree
+    foldl (\pathMap (r, h) -> R.insertPathMap' (R.toInternalPath (R.static r)) (const h) pathMap) R.emptyPathMap
         [ ("/oauth/authorize",  authorizationHandler)
         , ("/oauth/token",      tokenHandler)
         , ("/approval",         approvalHandler)

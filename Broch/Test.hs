@@ -15,7 +15,8 @@ import qualified Data.Text.Encoding as TE
 import           Data.UUID (toString)
 import           Data.UUID.V4
 import           Database.Persist.Sql (ConnectionPool, runMigrationSilent, runSqlPersistMPool)
-import           Web.Routing.TextRouting
+import qualified Web.Routing.Combinators as R
+import qualified Web.Routing.SafeRouting as R
 
 import           Broch.Model
 import           Broch.Persist (persistBackend)
@@ -46,7 +47,7 @@ testUsers =
     , DD.def { scimUserName = "dog", scimPassword = Just "dog" }
     ]
 
-testBroch :: Text -> ConnectionPool -> IO (RoutingTree (Handler ()))
+testBroch :: Text -> ConnectionPool -> IO (R.PathMap (Handler ()))
 testBroch issuer pool = do
     _ <- runSqlPersistMPool (runMigrationSilent BP.migrateAll) pool
     mapM_ (\c -> runSqlPersistMPool (BP.createClient c) pool) testClients
@@ -61,7 +62,7 @@ testBroch issuer pool = do
             , ("/login",  passwordLoginHandler defaultLoginPage (authenticateResourceOwner config))
             , ("/logout", invalidateSession >> complete)
             ]
-        routingTable = foldl (\tree (r, h) -> addToRoutingTree r h tree) (brochServer testConfig defaultApprovalPage authenticatedSubject authenticateSubject) extraRoutes
+        routingTable = foldl (\pathMap (r, h) -> R.insertPathMap' (R.toInternalPath (R.static r)) (const h) pathMap) (brochServer testConfig defaultApprovalPage authenticatedSubject authenticateSubject) extraRoutes
     return routingTable
   where
     createUser scimData = do

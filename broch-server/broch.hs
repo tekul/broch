@@ -18,7 +18,8 @@ import Network.Wai.Handler.Warp (run)
 import Options.Applicative
 import System.Environment (getEnvironment)
 import System.Exit (die)
-import Web.Routing.TextRouting (addToRoutingTree)
+import qualified Web.Routing.Combinators as R
+import qualified Web.Routing.SafeRouting as R
 
 import qualified Broch.PostgreSQL as BP
 import qualified Broch.SQLite as BS
@@ -123,7 +124,7 @@ runWithOptions BrochOpts {..} sidSalt = do
             , ("/login",  passwordLoginHandler defaultLoginPage authenticate)
             , ("/logout", invalidateSession >> text "You have been logged out")
             ]
-        router = foldl (\tree (r, h) -> addToRoutingTree r h tree) baseRouter extraRoutes
+        router = foldl (\pathMap (r, h) -> R.insertPathMap' (R.toInternalPath (R.static r)) (const h) pathMap) baseRouter extraRoutes
         broch = routerToMiddleware (defaultLoadSession 3600 sessionKey) issuer router
 
     run port (logStdoutDev (broch app))
