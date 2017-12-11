@@ -20,10 +20,7 @@ import Broch.OAuth2.Token
 import OAuth2IntegrationSpec
 import WaiTest
 
-spec :: Spec
-spec = do
-    app <- runIO testapp
-    let run = runTest app
+spec run = do
     openIdConfigSpec run
     openIdFlowsSpec run
     clientRegistrationSpec run

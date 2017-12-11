@@ -32,7 +32,7 @@ import           Jose.Jwk (Jwk)
 import           Jose.Jwt (IntDate (..))
 
 import           Broch.Model as M
-import           Broch.Test (testClients)
+import           Broch.Test.Data (testClients)
 import           Broch.URI
 import           Broch.Server.Config
 
@@ -48,7 +48,8 @@ createSchema c = do
 
     execute_ c "CREATE TABLE IF NOT EXISTS user_info (id text PRIMARY KEY REFERENCES op_user, name text, given_name text, family_name text, middle_name text, nickname text, preferred_username text, profile text, picture text, website text, email text NOT NULL, email_verified boolean DEFAULT FALSE, gender text, birthdate date, zoneinfo text, locale text, phone_number text, phone_number_verified boolean DEFAULT FALSE, formatted text, street_address text, locality text, region text, postal_code text, country text, updated_at datetime NOT NULL DEFAULT (datetime('now')))"
 
-    execute_ c "INSERT OR REPLACE INTO oauth2_client VALUES ('app', 'appsecret', 'authorization_code', 'http://localhost:8080/app', 3600, 7200, 'openid,profile,address,email', 0, 'client_secret_basic', null, null, null, null, null, null, 'localhost')"
+    -- Builtin test client and user
+    execute_ c "INSERT OR REPLACE INTO oauth2_client VALUES ('catsapp', 'appsecret', 'authorization_code', 'http://localhost:8080/catsapp', 3600, 7200, 'openid,profile,address,email', 0, 'client_secret_basic', null, null, null, null, null, null, 'localhost')"
 
     catsPassword <- hashPassword 6 ("cat" :: ByteString)
 

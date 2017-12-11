@@ -4,7 +4,6 @@
 module OAuth2IntegrationSpec where
 
 import Control.Monad (when)
-import Control.Monad.Logger
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as B
 import Data.Aeson (decode)
@@ -13,23 +12,15 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Clock.POSIX
-import Database.Persist.Sqlite (createSqlitePool)
 import Network.URI (uriPath)
-import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Test (SResponse(..))
 import Test.Hspec
 
 import Broch.Model
-import Broch.Server.Internal
-import Broch.Test
-import qualified Broch.Server.Session as Session
 import Broch.OAuth2.Token (AccessTokenResponse(..))
 import WaiTest
 
-spec :: Spec
-spec = do
-    app <- runIO testapp
-    let run t = runTest app t
+spec run =
     authCodeSuccessSpec run >> authzErrorSpec run >> badClientSpec run
 
 authCodeSuccessSpec run =
@@ -94,13 +85,6 @@ tokenRequest cid secret redirectUri gt code = do
         Nothing  -> liftIO $ print r >> fail "Failed to JSON decode response body"
         Just atr -> return atr
 
-testapp = do
-    pool <- runNoLoggingT $ createSqlitePool ":memory:" 2
-    let issuer = "http://testapp"
-    csKey <- Session.defaultKey
-    router <- testBroch issuer pool
-    let app = routerToApp (Session.defaultLoadSession 60 csKey) issuer router
-    return $ logStdoutDev app
 
 approveIfRequired :: WaiTest ()
 approveIfRequired = withResponse $ \r ->
