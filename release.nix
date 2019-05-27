@@ -1,9 +1,13 @@
-{ compiler ? "ghc822" }:
+{ compiler ? "default" }:
 
 let
   pkgs = import <nixpkgs> {};
   dontCheck = pkgs.haskell.lib.dontCheck;
-  haskellPkgs = pkgs.haskell.packages."${compiler}".extend (self: super: {
+  hPkgs = if compiler == "default"
+              then pkgs.haskellPackages
+              else pkgs.haskell.packages.${compiler};
+
+  haskellPkgs = hPkgs.extend (self: super: {
     broch = self.callPackage ./broch.nix {};
   });
 in

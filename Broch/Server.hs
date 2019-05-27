@@ -218,13 +218,15 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
             Right _            -> invalidMetaData "Client registration data must be a JSON Object"
 
     userInfoHandler = withBearerToken decodeAccessToken [OpenID] $ \g -> do
-        -- TODO: Handle missing client situation
-        Just client <- loadClient (granteeId g)
-        userInfo    <- liftIO $ getUserInfo (fromJust (granterId g)) client
+        client <- loadClient (granteeId g)
+        case client of
+            Nothing -> status internalServerError500 >> text "Client not found"
+            Just c -> do
+                userInfo <- liftIO $ getUserInfo (fromJust (granterId g)) c
 
-        case userInfo of
-            Nothing -> status internalServerError500 >> text "User not found"
-            Just ui -> claimsResponse client $ scopedClaims (grantScope g) ui
+                case userInfo of
+                    Nothing -> status internalServerError500 >> text "User not found"
+                    Just ui -> claimsResponse c $ scopedClaims (grantScope g) ui
 
     claimsResponse client claims =
         case userInfoAlgs client of
@@ -240,9 +242,13 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
     approvalHandler = withAuthenticatedUser authenticatedUser $ \s -> httpMethod >>= \m -> case m of
         GET -> do
             now    <- liftIO getPOSIXTime
-            Just client <- queryParam "client_id" >>= loadClient
-            scope  <- fmap (map scopeFromName . T.splitOn " ") (queryParam "scope")
-            html $ approvalPage client scope (round now)
+            client <- queryParam "client_id" >>= loadClient
+            case client of
+                -- This should really use an error page
+                Nothing -> status internalServerError500 >> text "Client not found"
+                Just c -> do
+                    scope  <- fmap (map scopeFromName . T.splitOn " ") (queryParam "scope")
+                    html $ approvalPage c scope (round now)
 
         POST -> do
             clntId    <- postParam "client_id"
