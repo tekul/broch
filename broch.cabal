@@ -121,7 +121,6 @@ Test-suite tests
                     , mtl
                     , monad-logger
                     , network-uri
-                    , sqlite-simple
                     , text
                     , time
                     , transformers

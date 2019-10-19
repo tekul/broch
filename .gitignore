@@ -1,5 +1,6 @@
 *.swp
 .stack-work/
+dist-newstyle/
 dist/
 pgdata/
 *.aes
@@ -7,3 +8,5 @@ pgdata/
 *.key
 *.crt
 tags
+.ghc.environment*
+cabal.project.local
