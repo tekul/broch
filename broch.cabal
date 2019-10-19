@@ -35,7 +35,6 @@ Library
                     , Broch.Server.Config
                     , Broch.Server.Internal
                     , Broch.Server.Session
-                    , Broch.SQLite
                     , Broch.Test
                     , Broch.Test.Data
                     , Broch.URI
@@ -61,7 +60,6 @@ Library
                     , postgresql-simple >= 0.5.1
                     , reroute >= 0.4
                     , resource-pool > 0.2.3
-                    , sqlite-simple >= 0.4.9
                     , text  >= 0.11
                     , time
                     , transformers >= 0.3
@@ -87,7 +85,6 @@ Executable broch
                     , postgresql-simple
                     , reroute
                     , resource-pool
-                    , sqlite-simple
                     , text
                     , wai-app-static >= 3.1.4
                     , wai-extra

@@ -5,13 +5,12 @@ import Crypto.KDF.BCrypt (validatePassword)
 import qualified Data.ByteArray.Encoding as BE
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
-import Data.Pool (createPool, withResource)
+import Data.Pool (createPool)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid ((<>))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.PostgreSQL.Simple
-import qualified Database.SQLite.Simple as SQLite
 import Network.Wai.Application.Static (staticApp, defaultWebAppSettings)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import Network.Wai.Handler.Warp (run)
@@ -22,29 +21,17 @@ import qualified Web.Routing.Combinators as R
 import qualified Web.Routing.SafeRouting as R
 
 import qualified Broch.PostgreSQL as BP
-import qualified Broch.SQLite as BS
 import Broch.Server
 import Broch.Server.Config
 import Broch.Server.Internal
 import Broch.Server.Session (defaultKey, defaultLoadSession)
-
-data BackEnd = POSTGRES | SQLITE deriving (Read, Show)
 
 data BrochOpts = BrochOpts
     { issuer  :: T.Text
     , port    :: Int
     , connStr :: String
     , webRoot :: FilePath
-    , backEnd :: BackEnd
     }
-
-backEndOption :: Parser BackEnd
-backEndOption = option auto
-    ( long "back-end"
-   <> metavar "(POSTGRES or SQLITE)"
-   <> value POSTGRES
-   <> help "the database backend to use for storage"
-    )
 
 textOption :: Mod OptionFields String -> Parser T.Text
 textOption x = T.pack <$> strOption x
@@ -63,7 +50,7 @@ parser issuer db port webroot = BrochOpts
        <> help "The port to listen on")
     <*> strOption
         ( long "connection-string"
-       <> help "The postgresql connection string or sqlite database file name"
+       <> help "The postgresql connection string"
        <> metavar "DATABASE"
        <> value db)
     <*> strOption
@@ -71,7 +58,6 @@ parser issuer db port webroot = BrochOpts
        <> help "The directory from which to serve static content"
        <> metavar "WEBROOT"
        <> value webroot)
-    <*> backEndOption
 
 main :: IO ()
 main = do
@@ -87,11 +73,9 @@ main = do
     runWithOptions opts sidSalt
   where
     setConnStr opts
-        | connStr opts == "default" = opts { connStr = defaultConnStr (backEnd opts)}
+        | connStr opts == "default" = opts { connStr = defaultConnStr}
         | otherwise = opts
-    defaultConnStr be = case be of
-        POSTGRES -> "dbname=broch"
-        SQLITE   -> "broch.db3"
+    defaultConnStr = "dbname=broch"
 
 decodeSalt :: Maybe String -> IO (Maybe ByteString)
 decodeSalt Nothing = return Nothing
@@ -106,16 +90,10 @@ runWithOptions BrochOpts {..} sidSalt = do
     sessionKey <- defaultKey
     kr <- defaultKeyRing
     rotateKeys kr True
-    (mkBackEnd, passwordAuthenticate) <- case backEnd of
-        POSTGRES -> do
-            pool <- createPool (connectPostgreSQL (BC.pack connStr)) close 1 60 20
-            return (BP.postgreSQLBackend pool, BP.passwordAuthenticate pool)
-        SQLITE   -> do
-            pool <- createPool (SQLite.open connStr) SQLite.close 1 60 20
-            withResource pool $ \c -> BS.createSchema c
-            return (BS.sqliteBackend pool, \v u p -> withResource pool $ \c -> BS.passwordAuthenticate c v u p)
+    pool <- createPool (connectPostgreSQL (BC.pack connStr)) close 1 60 20
+    let passwordAuthenticate = BP.passwordAuthenticate pool
 
-    config <- mkBackEnd <$> inMemoryConfig issuer kr sidSalt
+    config <- BP.postgreSQLBackend pool <$> inMemoryConfig issuer kr sidSalt
     let app = staticApp (defaultWebAppSettings "webroot")
         baseRouter = brochServer config defaultApprovalPage authenticatedSubject authenticateSubject
         authenticate username password = passwordAuthenticate validatePassword username (TE.encodeUtf8 password)
