@@ -1,5 +1,6 @@
 language: c
 sudo: false
+dist: bionic
 
 git:
   submodules: false  # whether to recursively clone submodules
@@ -20,6 +21,12 @@ before_cache:
 
 matrix:
   include:
+    - env: CABALVER=2.2 GHCVER=8.8.4
+      compiler: "ghc-8.8.4"
+      addons: {apt: {packages: [cabal-install-2.2,ghc-8.8.4,happy-1.19.5], sources: [hvr-ghc]}}
+    - env: CABALVER=2.2 GHCVER=8.6.5
+      compiler: "ghc-8.6.5"
+      addons: {apt: {packages: [cabal-install-2.2,ghc-8.6.5,happy-1.19.5], sources: [hvr-ghc]}}
     - env: CABALVER=2.0 GHCVER=8.2.2
       compiler: "ghc-8.2.2"
       addons: {apt: {packages: [cabal-install-2.0,ghc-8.2.2,happy-1.19.5], sources: [hvr-ghc]}}
