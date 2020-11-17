@@ -105,7 +105,7 @@ openIdFlowsSpec run =
         describe "A request with response_type=code id_token" $ do
             it "Requires a nonce" $ run $ authzWithoutNonce CodeIdToken
             it "Includes c_hash in id_token" $ run $ do
-                AuthzResponse (Just t) Nothing (Just c) <- auth CodeIdToken [nons]
+                AuthzResponse (Just _) Nothing (Just _) <- auth CodeIdToken [nons]
                 --assertEqual "c_hash in Id token should match code" (c_hash idt) (Just $ idTokenHash appClient (TE.encodeUtf8 c))
 
                 -- TODO: Decode JWT, get c_hash and check value

@@ -30,7 +30,7 @@ gc = return "acode"
 
 createAuthorization :: CreateAuthorization Identity TestUser
 createAuthorization "acode" (TU "cat") Client {clientId = "appclient"} _ _ _ _ = return ()
-createAuthorization _ _ _ _ _ _ _ = fail "Invalid authz data"
+createAuthorization _ _ _ _ _ _ _ = error "Invalid authz data"
 
 resourceOwnerApproval _ _ scope _ = return scope
 
