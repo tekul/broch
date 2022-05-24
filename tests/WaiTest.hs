@@ -14,7 +14,7 @@ import Data.ByteArray.Encoding
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.HashMap.Strict as H
+import qualified Data.Aeson.KeyMap as H
 import qualified Data.List as DL
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
@@ -29,6 +29,7 @@ import Network.Wai.Internal
 import Network.Wai.Test hiding (request)
 import qualified Test.HUnit as HUnit
 import qualified Web.Cookie as C
+import Data.Aeson.Key
 
 -- This code is influenced by yesod-test, but for plain Wai requests.
 -- The wai-test module by itself only supports simple request testing,
@@ -166,7 +167,7 @@ jsonBody = do
         Success a -> return a
         _         -> error "Failed to decode JSON"
 
-jsonField :: Text -> WaiTest Text
+jsonField :: Key -> WaiTest Text
 jsonField name = do
     Object jsn <- jsonContent
     case H.lookup name jsn of

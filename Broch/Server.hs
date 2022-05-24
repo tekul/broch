@@ -11,7 +11,6 @@ import           Data.ByteArray.Encoding
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B
-import qualified Data.HashMap.Strict as HM
 import           Data.Int (Int64)
 import           Data.List (intersect, (\\))
 import qualified Data.Map.Strict as Map
@@ -46,7 +45,7 @@ import           Broch.Server.Config
 import           Broch.Server.Internal
 import           Broch.Token
 import           Broch.URI
-
+import qualified Data.Aeson.KeyMap as HM
 
 userIdKey :: ByteString
 userIdKey = "_uid"
