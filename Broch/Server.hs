@@ -4,14 +4,15 @@ module Broch.Server where
 
 import           Control.Error hiding (err)
 import           Control.Exception (SomeException, catch)
+import           Control.Monad (msum, unless)
 import           Control.Monad.State.Strict
 import           Crypto.Random (getRandomBytes, MonadRandom)
 import           Data.Aeson as A hiding (json)
+import qualified Data.Aeson.KeyMap as KM
 import           Data.ByteArray.Encoding
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B
-import qualified Data.HashMap.Strict as HM
 import           Data.Int (Int64)
 import           Data.List (intersect, (\\))
 import qualified Data.Map.Strict as Map
@@ -213,7 +214,7 @@ brochServer config@Config {..} approvalPage authenticatedUser authenticateUser =
                         -- original JSON object
                         Right c -> do
                             status created201
-                            json . Object $ HM.union o $ HM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c)]
+                            json . Object $ KM.union o $ KM.fromList [("client_id", String $ clientId c), ("client_secret", String . fromJust $ clientSecret c)]
                         Left  e -> status badRequest400 >> json e
             Right _            -> invalidMetaData "Client registration data must be a JSON Object"
 

@@ -34,6 +34,7 @@ where
 import Control.Arrow (second)
 import Control.Error
 import Control.Exception (SomeException, catch)
+import Control.Monad (unless)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State

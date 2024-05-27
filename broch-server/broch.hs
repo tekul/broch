@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 
-import Control.Monad (msum, when)
+import Control.Monad (msum, sequence, when)
 import Crypto.KDF.BCrypt (validatePassword)
 import qualified Data.ByteArray.Encoding as BE
 import Data.ByteString (ByteString)
@@ -99,7 +99,9 @@ decodeSalt (Just s) = case bs of
     Left  _ -> die "salt value must be hex or base64 encoded"
     Right b -> return (Just b)
   where
-    bs = let b = BC.pack s in msum [BE.convertFromBase BE.Base64 b, BE.convertFromBase BE.Base16 b]
+    bs =
+        let b = BC.pack s
+        in BC.concat <$> sequence [BE.convertFromBase BE.Base64 b, BE.convertFromBase BE.Base16 b]
 
 runWithOptions :: BrochOpts -> Maybe ByteString -> IO ()
 runWithOptions BrochOpts {..} sidSalt = do

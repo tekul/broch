@@ -10,11 +10,11 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Trans.State as ST
 import Data.Aeson (encode, Result(..), fromJSON, eitherDecode', FromJSON, ToJSON)
 import Data.Aeson.Types (Value(..))
+import qualified Data.Aeson.KeyMap as KM
 import Data.ByteArray.Encoding
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.HashMap.Strict as H
 import qualified Data.List as DL
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
@@ -166,10 +166,10 @@ jsonBody = do
         Success a -> return a
         _         -> error "Failed to decode JSON"
 
-jsonField :: Text -> WaiTest Text
+jsonField :: KM.Key -> WaiTest Text
 jsonField name = do
     Object jsn <- jsonContent
-    case H.lookup name jsn of
+    case KM.lookup name jsn of
         Just (String v) -> return v
         _ -> dumpResponse >> error "Failed to find named string field in JSON content"
 
